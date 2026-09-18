@@ -1,0 +1,7 @@
+services:
+  - type: web
+    name: pdf-web-toolbox
+    runtime: docker
+    plan: free
+    healthCheckPath: /api/health
+    autoDeploy: true

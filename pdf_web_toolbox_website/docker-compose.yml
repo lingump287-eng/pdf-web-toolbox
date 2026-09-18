@@ -1,0 +1,8 @@
+services:
+  pdf-toolbox:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      PDF_TOOLBOX_MAX_FILE_MB: "100"
+    restart: unless-stopped
