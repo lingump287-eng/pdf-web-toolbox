@@ -47,13 +47,31 @@ function escapeHtml(text) {
 }
 
 function renderNav() {
-  $('toolNav').innerHTML = '';
-  for (const tool of tools) {
-    const btn = document.createElement('button');
-    btn.type = 'button'; btn.className = `nav-btn ${tool.id === state.activeId ? 'active' : ''}`;
-    btn.innerHTML = `${tool.label}<span>${tool.desc}</span>`;
-    btn.addEventListener('click', () => switchTool(tool.id));
-    $('toolNav').appendChild(btn);
+  const groups = [
+    { label: '常用工具', ids: ['merge', 'split', 'extract', 'delete-pages'] },
+    { label: '页面处理', ids: ['rotate', 'watermark', 'page-number', 'info'] },
+    { label: '格式转换', ids: ['to-images', 'images-to-pdf'] },
+    { label: '安全工具', ids: ['encrypt', 'decrypt'] }
+  ];
+
+  const nav = $('toolNav');
+  nav.innerHTML = '';
+  for (const group of groups) {
+    const title = document.createElement('div');
+    title.className = 'nav-group-title';
+    title.textContent = group.label;
+    nav.appendChild(title);
+
+    for (const id of group.ids) {
+      const tool = tools.find(t => t.id === id);
+      if (!tool) continue;
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = `nav-btn ${tool.id === state.activeId ? 'active' : ''}`;
+      btn.innerHTML = `<span class="nav-dot"></span><span class="nav-label">${tool.label}</span>`;
+      btn.addEventListener('click', () => switchTool(tool.id));
+      nav.appendChild(btn);
+    }
   }
 }
 
@@ -81,7 +99,7 @@ function switchTool(id) {
 
 function renderAll() {
   const tool = currentTool();
-  $('toolTitle').textContent = tool.label; $('toolDesc').textContent = tool.desc;
+  $('toolTitle').textContent = tool.label; $('toolDesc').textContent = tool.desc; if ($('breadcrumbTool')) $('breadcrumbTool').textContent = tool.label;
   $('fileInput').accept = tool.accept; $('fileInput').multiple = tool.multiple;
   $('acceptText').textContent = tool.id === 'images-to-pdf' ? '支持 PNG、JPG、BMP、TIFF、WEBP 图片' : '支持 PDF 文件';
   panels.forEach(id => $(id).classList.add('hidden'));
@@ -95,7 +113,7 @@ function renderAll() {
     $('passwordLabel').textContent = tool.id === 'encrypt' ? '打开密码' : tool.id === 'decrypt' ? '原 PDF 密码' : 'PDF 密码，可选';
     $('ownerPasswordField').classList.toggle('hidden', tool.id !== 'encrypt');
   }
-  renderNav(); renderFiles(); renderTips();
+  renderNav(); renderFiles(); renderTips(); if (!state.busy) $('runBtn').textContent = actionLabel();
 }
 
 function renderTips() {
@@ -276,7 +294,7 @@ function updateProgress(value,label) {
 function resetJobUi() {
   if (state.pollTimer) clearTimeout(state.pollTimer); state.pollTimer=null; state.jobId=null;
   $('progressPanel').classList.add('hidden'); $('cancelBtn').classList.add('hidden');
-  $('runBtn').disabled=false; $('runBtn').textContent='开始处理'; state.busy=false;
+  $('runBtn').disabled=false; $('runBtn').textContent=actionLabel(); state.busy=false;
 }
 
 async function pollJob(jobId) {
@@ -302,6 +320,24 @@ async function pollJob(jobId) {
     if (data.status==='cancelled') { setStatus('任务已取消。'); resetJobUi(); return; }
     state.pollTimer=setTimeout(()=>pollJob(jobId),650);
   } catch(err) { setStatus(err.message||String(err),true); resetJobUi(); }
+}
+
+function actionLabel() {
+  const labels = {
+    merge: '合并 PDF',
+    extract: '提取页面',
+    'delete-pages': '删除页面',
+    split: '拆分 PDF',
+    rotate: '旋转 PDF',
+    'to-images': '转换为图片',
+    'images-to-pdf': '生成 PDF',
+    watermark: '添加水印',
+    'page-number': '添加页码',
+    encrypt: '加密 PDF',
+    decrypt: '解密 PDF',
+    info: '读取信息'
+  };
+  return labels[state.activeId] || '开始处理';
 }
 
 async function runTool() {
