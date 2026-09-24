@@ -7,7 +7,8 @@ from typing import Literal
 
 import fitz
 from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse, JSONResponse\nfrom starlette.concurrency import run_in_threadpool
+from fastapi.responses import FileResponse, JSONResponse
+from starlette.concurrency import run_in_threadpool
 
 from app.services.jobs import (
     cancel_job,
