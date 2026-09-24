@@ -3,75 +3,127 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>PDF 工具箱｜在线 PDF 处理</title>
-  <meta name="description" content="在线合并、拆分、旋转、转换、加密 PDF。文件仅用于当前处理任务，并在任务结束后自动清理。" />
+  <meta name="theme-color" content="#d93025" />
+  <title>PDF 工具箱｜免费在线 PDF 处理</title>
+  <meta name="description" content="免费在线合并、拆分、旋转、转换、加密 PDF。文件仅用于当前处理任务，并在任务结束后自动清理。" />
   <link rel="stylesheet" href="/static/style.css" />
 </head>
 <body>
-  <div class="app-shell">
-    <aside id="sidebar" class="sidebar">
-      <div class="brand">
-        <div class="logo">PDF</div>
-        <div>
-          <h1>PDF 工具箱</h1>
-          <p>在线 Web 版</p>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="top-brand" aria-label="PDF 工具箱">
+        <div class="brand-mark">PDF</div>
+        <div class="brand-copy">
+          <strong>PDF 工具箱</strong>
+          <span>在线 PDF 处理</span>
         </div>
-        <button id="mobileNavClose" class="mobile-nav-close" type="button" aria-label="关闭工具菜单">×</button>
       </div>
-      <nav id="toolNav" class="tool-nav"></nav>
-      <div class="sidebar-note">
-        <strong>临时处理</strong>
-        <span>文件会上传到当前网站服务器，仅用于本次处理。任务结果到期或下载后会自动清理。</span>
-      </div>
-    </aside>
 
-    <main class="main-panel">
-      <button id="mobileNavOpen" class="mobile-nav-open" type="button">☰ 选择 PDF 工具</button>
+      <nav class="top-nav" aria-label="工具分类">
+        <span>常用工具</span>
+        <span>页面处理</span>
+        <span>格式转换</span>
+        <span>安全工具</span>
+      </nav>
 
-      <section class="hero-card">
-        <div>
-          <p class="eyebrow">PDF Web Toolbox</p>
-          <h2 id="toolTitle">PDF 合并</h2>
-          <p id="toolDesc">上传多个 PDF，按列表顺序合并为一个文件。</p>
+      <div class="top-actions">
+        <div class="privacy-pill" title="上传文件仅用于当前处理任务">
+          <span class="privacy-lock">◆</span>
+          <span>文件仅临时处理</span>
         </div>
         <div class="health-card">
           <span class="dot" id="healthDot"></span>
           <span id="healthText">正在检查服务...</span>
         </div>
+      </div>
+    </div>
+  </header>
+
+  <div class="app-shell">
+    <aside id="sidebar" class="sidebar">
+      <div class="sidebar-head">
+        <div>
+          <span class="sidebar-kicker">TOOLS</span>
+          <h2>PDF 工具</h2>
+        </div>
+        <button id="mobileNavClose" class="mobile-nav-close" type="button" aria-label="关闭工具菜单">×</button>
+      </div>
+
+      <nav id="toolNav" class="tool-nav"></nav>
+
+      <div class="sidebar-note">
+        <div class="sidebar-note-icon">✓</div>
+        <div>
+          <strong>隐私处理</strong>
+          <span>文件只用于当前任务，结果会自动过期清理。</span>
+        </div>
+      </div>
+    </aside>
+
+    <main class="main-panel">
+      <button id="mobileNavOpen" class="mobile-nav-open" type="button">
+        <span>☰</span> 选择 PDF 工具
+      </button>
+
+      <div class="breadcrumb">
+        <span>PDF 工具箱</span>
+        <span>›</span>
+        <strong id="breadcrumbTool">PDF 合并</strong>
+      </div>
+
+      <section class="hero-card">
+        <div class="hero-icon">PDF</div>
+        <div class="hero-copy">
+          <p class="eyebrow">在线 PDF 工具</p>
+          <h1 id="toolTitle">PDF 合并</h1>
+          <p id="toolDesc">上传多个 PDF，按列表顺序合并为一个文件。</p>
+        </div>
       </section>
 
       <section class="workspace">
         <div class="left-column">
-          <div id="dropZone" class="drop-zone" tabindex="0">
+          <div id="dropZone" class="drop-zone" tabindex="0" role="button" aria-label="选择或拖拽文件">
             <input id="fileInput" type="file" hidden />
-            <div class="drop-icon">＋</div>
-            <h3>拖拽文件到这里，或点击选择文件</h3>
+            <div class="drop-file-icon">
+              <span>PDF</span>
+              <i>＋</i>
+            </div>
+            <h2>选择文件开始处理</h2>
             <p id="acceptText">支持 PDF 文件</p>
+            <span class="upload-button">选择文件</span>
+            <div class="drop-hint">或将文件拖拽到此处</div>
           </div>
 
-          <div class="file-card">
+          <div class="file-card content-card">
             <div class="section-title">
-              <h3>文件列表</h3>
+              <div>
+                <span class="section-kicker">FILES</span>
+                <h3>文件列表</h3>
+              </div>
               <button id="clearFilesBtn" class="ghost-btn" type="button">清空</button>
             </div>
             <div id="fileList" class="file-list empty">尚未选择文件。</div>
           </div>
 
-          <div id="previewCard" class="preview-card hidden">
+          <div id="previewCard" class="preview-card content-card hidden">
             <div class="section-title">
               <div>
+                <span class="section-kicker">PREVIEW</span>
                 <h3>页面预览</h3>
                 <span id="previewSummary">正在读取页面...</span>
               </div>
               <button id="clearSelectionBtn" class="ghost-btn" type="button">清除选页</button>
             </div>
             <div id="previewGrid" class="preview-grid"></div>
-            <p class="preview-help">点击缩略图可选择页面，适用于提取、删除、旋转、转图片、水印和页码功能。</p>
+            <p class="preview-help">点击缩略图即可选择页面；适用于提取、删除、旋转、转图片、水印和页码功能。</p>
           </div>
 
-          <div class="param-card">
+          <div class="param-card content-card">
             <div class="section-title">
-              <h3>参数设置</h3>
+              <div>
+                <span class="section-kicker">SETTINGS</span>
+                <h3>参数设置</h3>
+              </div>
               <span id="paramHint">根据当前功能自动显示</span>
             </div>
 
@@ -123,7 +175,8 @@
           </div>
 
           <div id="completedCard" class="completed-card hidden">
-            <div>
+            <div class="complete-mark">✓</div>
+            <div class="complete-copy">
               <strong>处理完成</strong>
               <p id="completedText">结果文件已准备好。</p>
             </div>
@@ -135,23 +188,43 @@
         </div>
 
         <div class="right-column">
-          <div class="info-card">
-            <div class="section-title"><h3>使用提示</h3></div>
+          <div class="info-card content-card">
+            <div class="section-title">
+              <div>
+                <span class="section-kicker">GUIDE</span>
+                <h3>使用提示</h3>
+              </div>
+            </div>
             <ul id="tipsList" class="tips-list"></ul>
+
+            <div class="privacy-info">
+              <div class="privacy-info-icon">✓</div>
+              <div>
+                <strong>文件安全</strong>
+                <span>文件仅用于当前任务，服务端不会主动长期保存。</span>
+              </div>
+            </div>
           </div>
-          <div id="resultCard" class="result-card hidden">
-            <div class="section-title"><h3>PDF 信息</h3></div>
+
+          <div id="resultCard" class="result-card content-card hidden">
+            <div class="section-title">
+              <div>
+                <span class="section-kicker">INFO</span>
+                <h3>PDF 信息</h3>
+              </div>
+            </div>
             <div id="infoResult" class="info-result"></div>
           </div>
         </div>
       </section>
 
       <footer class="site-footer">
-        <span>PDF Web Toolbox</span>
+        <span>PDF 工具箱 · 免费在线 PDF 处理</span>
         <span id="limitText">正在读取上传限制...</span>
       </footer>
     </main>
   </div>
+
   <div id="navBackdrop" class="nav-backdrop hidden"></div>
   <script src="/static/app.js"></script>
 </body>
