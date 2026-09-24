@@ -95,7 +95,9 @@ def pdf_basic_info(pdf_path: str | Path, password: str | None = None) -> dict[st
     if encrypted and password:
         decrypted = bool(reader.decrypt(password))
     can_read_pages = not encrypted or decrypted
-    page_num = len(reader.pages) if can_read_pages else -1\n    if page_num > MAX_PAGES_PER_PDF:\n        raise ValueError(f"PDF 页数超过限制：最多 {MAX_PAGES_PER_PDF} 页")
+    page_num = len(reader.pages) if can_read_pages else -1
+    if page_num > MAX_PAGES_PER_PDF:
+        raise ValueError(f"PDF 页数超过限制：最多 {MAX_PAGES_PER_PDF} 页")
     metadata = reader.metadata if can_read_pages and reader.metadata else {}
 
     page_sizes: list[str] = []
