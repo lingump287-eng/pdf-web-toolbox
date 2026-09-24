@@ -4,27 +4,30 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>PDF 工具箱｜在线 PDF 处理</title>
-  <meta name="description" content="在线合并、拆分、旋转、转换、加密 PDF。文件仅用于当前处理任务，并在请求结束后自动清理。" />
+  <meta name="description" content="在线合并、拆分、旋转、转换、加密 PDF。文件仅用于当前处理任务，并在任务结束后自动清理。" />
   <link rel="stylesheet" href="/static/style.css" />
 </head>
 <body>
   <div class="app-shell">
-    <aside class="sidebar">
+    <aside id="sidebar" class="sidebar">
       <div class="brand">
         <div class="logo">PDF</div>
         <div>
           <h1>PDF 工具箱</h1>
           <p>在线 Web 版</p>
         </div>
+        <button id="mobileNavClose" class="mobile-nav-close" type="button" aria-label="关闭工具菜单">×</button>
       </div>
       <nav id="toolNav" class="tool-nav"></nav>
       <div class="sidebar-note">
         <strong>临时处理</strong>
-        <span>文件会上传到当前网站服务器，仅用于本次处理，并在任务完成后自动清理。</span>
+        <span>文件会上传到当前网站服务器，仅用于本次处理。任务结果到期或下载后会自动清理。</span>
       </div>
     </aside>
 
     <main class="main-panel">
+      <button id="mobileNavOpen" class="mobile-nav-open" type="button">☰ 选择 PDF 工具</button>
+
       <section class="hero-card">
         <div>
           <p class="eyebrow">PDF Web Toolbox</p>
@@ -54,6 +57,18 @@
             <div id="fileList" class="file-list empty">尚未选择文件。</div>
           </div>
 
+          <div id="previewCard" class="preview-card hidden">
+            <div class="section-title">
+              <div>
+                <h3>页面预览</h3>
+                <span id="previewSummary">正在读取页面...</span>
+              </div>
+              <button id="clearSelectionBtn" class="ghost-btn" type="button">清除选页</button>
+            </div>
+            <div id="previewGrid" class="preview-grid"></div>
+            <p class="preview-help">点击缩略图可选择页面，适用于提取、删除、旋转、转图片、水印和页码功能。</p>
+          </div>
+
           <div class="param-card">
             <div class="section-title">
               <h3>参数设置</h3>
@@ -68,119 +83,76 @@
             </div>
 
             <div id="rotatePanel" class="form-grid hidden">
-              <label>
-                <span>旋转角度</span>
-                <select id="degrees">
-                  <option value="90">90°</option>
-                  <option value="180">180°</option>
-                  <option value="270">270°</option>
-                </select>
-              </label>
-              <label>
-                <span>旋转范围</span>
-                <select id="rotateMode">
-                  <option value="all">全部页面</option>
-                  <option value="odd">奇数页</option>
-                  <option value="even">偶数页</option>
-                  <option value="range">指定页码</option>
-                </select>
-              </label>
+              <label><span>旋转角度</span><select id="degrees"><option value="90">90°</option><option value="180">180°</option><option value="270">270°</option></select></label>
+              <label><span>旋转范围</span><select id="rotateMode"><option value="all">全部页面</option><option value="odd">奇数页</option><option value="even">偶数页</option><option value="range">指定页码</option></select></label>
             </div>
 
             <div id="imagePanel" class="form-grid hidden">
-              <label>
-                <span>DPI</span>
-                <input id="dpi" type="number" min="1" max="600" value="200" />
-              </label>
-              <label>
-                <span>图片格式</span>
-                <select id="imageFormat">
-                  <option value="png">PNG</option>
-                  <option value="jpg">JPG</option>
-                </select>
-              </label>
+              <label><span>DPI</span><input id="dpi" type="number" min="72" max="400" value="200" /></label>
+              <label><span>图片格式</span><select id="imageFormat"><option value="png">PNG</option><option value="jpg">JPG</option></select></label>
             </div>
 
             <div id="watermarkPanel" class="form-grid hidden">
-              <label class="wide">
-                <span>水印文字</span>
-                <input id="watermarkText" type="text" value="CONFIDENTIAL" />
-              </label>
-              <label>
-                <span>字号</span>
-                <input id="fontSize" type="number" min="6" max="200" value="36" />
-              </label>
-              <label>
-                <span>位置</span>
-                <select id="watermarkPosition">
-                  <option value="center">居中</option>
-                  <option value="top-left">左上角</option>
-                  <option value="bottom-center">底部居中</option>
-                  <option value="bottom-right">右下角</option>
-                </select>
-              </label>
+              <label class="wide"><span>水印文字</span><input id="watermarkText" type="text" value="机密文件" /></label>
+              <label><span>字号</span><input id="fontSize" type="number" min="6" max="200" value="36" /></label>
+              <label><span>位置</span><select id="watermarkPosition"><option value="center">居中</option><option value="top-left">左上角</option><option value="bottom-center">底部居中</option><option value="bottom-right">右下角</option></select></label>
             </div>
 
             <div id="pageNumberPanel" class="form-grid hidden">
-              <label>
-                <span>前缀</span>
-                <input id="prefix" type="text" value="第 " />
-              </label>
-              <label>
-                <span>后缀</span>
-                <input id="suffix" type="text" value=" 页" />
-              </label>
-              <label>
-                <span>起始页码</span>
-                <input id="startNumber" type="number" value="1" />
-              </label>
-              <label>
-                <span>字号</span>
-                <input id="pageFontSize" type="number" min="6" max="72" value="10" />
-              </label>
+              <label><span>前缀</span><input id="prefix" type="text" value="第 " /></label>
+              <label><span>后缀</span><input id="suffix" type="text" value=" 页" /></label>
+              <label><span>起始页码</span><input id="startNumber" type="number" value="1" /></label>
+              <label><span>字号</span><input id="pageFontSize" type="number" min="6" max="72" value="10" /></label>
             </div>
 
             <div id="passwordPanel" class="form-grid hidden">
-              <label>
-                <span id="passwordLabel">密码</span>
-                <input id="password" type="password" placeholder="请输入密码" />
-              </label>
-              <label id="ownerPasswordField">
-                <span>权限密码，可选</span>
-                <input id="ownerPassword" type="password" placeholder="不填则与打开密码一致" />
-              </label>
+              <label><span id="passwordLabel">密码</span><input id="password" type="password" placeholder="请输入密码" /></label>
+              <label id="ownerPasswordField"><span>权限密码，可选</span><input id="ownerPassword" type="password" placeholder="不填则与打开密码一致" /></label>
+            </div>
+
+            <div id="progressPanel" class="progress-panel hidden">
+              <div class="progress-head"><span id="progressLabel">准备处理</span><strong id="progressValue">0%</strong></div>
+              <div class="progress-track"><div id="progressBar" class="progress-bar"></div></div>
             </div>
 
             <div class="action-row">
               <button id="runBtn" class="primary-btn" type="button">开始处理</button>
+              <button id="cancelBtn" class="danger-btn hidden" type="button">取消任务</button>
               <span id="statusText" class="status-text">等待上传文件。</span>
+            </div>
+          </div>
+
+          <div id="completedCard" class="completed-card hidden">
+            <div>
+              <strong>处理完成</strong>
+              <p id="completedText">结果文件已准备好。</p>
+            </div>
+            <div class="result-actions">
+              <a id="downloadBtn" class="primary-link" href="#">下载结果</a>
+              <button id="continueBtn" class="ghost-btn" type="button">继续编辑这个 PDF</button>
             </div>
           </div>
         </div>
 
         <div class="right-column">
           <div class="info-card">
-            <div class="section-title">
-              <h3>使用提示</h3>
-            </div>
+            <div class="section-title"><h3>使用提示</h3></div>
             <ul id="tipsList" class="tips-list"></ul>
           </div>
-
           <div id="resultCard" class="result-card hidden">
-            <div class="section-title">
-              <h3>PDF 信息</h3>
-            </div>
+            <div class="section-title"><h3>PDF 信息</h3></div>
             <div id="infoResult" class="info-result"></div>
           </div>
         </div>
       </section>
-          <footer class="site-footer">
+
+      <footer class="site-footer">
         <span>PDF Web Toolbox</span>
         <span id="limitText">正在读取上传限制...</span>
       </footer>
     </main>
   </div>
-
+  <div id="navBackdrop" class="nav-backdrop hidden"></div>
   <script src="/static/app.js"></script>
 </body>
 </html>

@@ -7,8 +7,11 @@ from typing import Sequence
 import fitz  # PyMuPDF
 from pypdf import PdfReader, PdfWriter
 
+from app.utils.files import MAX_DPI, MAX_PAGES_PER_PDF, MAX_TOTAL_PAGES
+
 IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff", ".webp"}
 PDF_EXT = ".pdf"
+CJK_FONT = "china-s"
 
 
 def normalize_path(path: str | Path) -> Path:
@@ -93,6 +96,8 @@ def pdf_basic_info(pdf_path: str | Path, password: str | None = None) -> dict[st
         decrypted = bool(reader.decrypt(password))
     can_read_pages = not encrypted or decrypted
     page_num = len(reader.pages) if can_read_pages else -1
+    if page_num > MAX_PAGES_PER_PDF:
+        raise ValueError(f"PDF 页数超过限制：最多 {MAX_PAGES_PER_PDF} 页")
     metadata = reader.metadata if can_read_pages and reader.metadata else {}
 
     page_sizes: list[str] = []
@@ -232,6 +237,10 @@ def pdf_to_images(pdf_path: str | Path, output_folder: str | Path, dpi: int = 30
 
     doc = fitz.open(str(p))
     try:
+        if doc.needs_pass:
+            raise ValueError("该 PDF 已加密，请先解密后再添加水印")
+        if doc.page_count > MAX_PAGES_PER_PDF:
+            raise ValueError(f"PDF 页数超过限制：最多 {MAX_PAGES_PER_PDF} 页")
         pages = parse_page_ranges(range_text, doc.page_count)
         zoom = dpi / 72.0
         matrix = fitz.Matrix(zoom, zoom)
@@ -279,6 +288,8 @@ def encrypt_pdf(pdf_path: str | Path, output_path: str | Path, user_password: st
     reader = PdfReader(str(normalize_path(pdf_path)))
     if reader.is_encrypted:
         raise ValueError("该 PDF 已经加密，如需重新设置密码请先解密")
+    if len(reader.pages) > MAX_PAGES_PER_PDF:
+        raise ValueError(f"PDF 页数超过限制：最多 {MAX_PAGES_PER_PDF} 页")
     writer = PdfWriter()
     for page in reader.pages:
         writer.add_page(page)
@@ -299,6 +310,8 @@ def decrypt_pdf(pdf_path: str | Path, output_path: str | Path, password: str) ->
         raise ValueError("该 PDF 未加密，无需解密")
     if not reader.decrypt(password):
         raise ValueError("密码错误，无法解密")
+    if len(reader.pages) > MAX_PAGES_PER_PDF:
+        raise ValueError(f"PDF 页数超过限制：最多 {MAX_PAGES_PER_PDF} 页")
     writer = PdfWriter()
     for page in reader.pages:
         writer.add_page(page)
@@ -328,7 +341,7 @@ def add_text_watermark(
         for idx in pages:
             page = doc.load_page(idx)
             rect = page.rect
-            text_width = fitz.get_text_length(text, fontsize=font_size)
+            text_width = fitz.get_text_length(text, fontname=CJK_FONT, fontsize=font_size)
             if position in {"top-left", "左上角"}:
                 point = fitz.Point(36, 54)
             elif position in {"bottom-right", "右下角"}:
@@ -337,7 +350,7 @@ def add_text_watermark(
                 point = fitz.Point(max(36, (rect.width - text_width) / 2), max(54, rect.height - 36))
             else:
                 point = fitz.Point(max(36, (rect.width - text_width) / 2), rect.height / 2)
-            page.insert_text(point, text, fontsize=font_size, color=(0.72, 0.72, 0.72), overlay=True)
+            page.insert_text(point, text, fontname=CJK_FONT, fontsize=font_size, color=(0.72, 0.72, 0.72), overlay=True)
         doc.save(str(out), garbage=4, deflate=True)
         return len(pages)
     finally:
@@ -357,14 +370,18 @@ def add_page_numbers(
     out = ensure_parent_dir(output_path)
     doc = fitz.open(str(p))
     try:
+        if doc.needs_pass:
+            raise ValueError("该 PDF 已加密，请先解密后再添加页码")
+        if doc.page_count > MAX_PAGES_PER_PDF:
+            raise ValueError(f"PDF 页数超过限制：最多 {MAX_PAGES_PER_PDF} 页")
         pages = parse_page_ranges(range_text, doc.page_count)
         for n, idx in enumerate(pages, start=start_number):
             page = doc.load_page(idx)
             rect = page.rect
             text = f"{prefix}{n}{suffix}"
-            text_width = fitz.get_text_length(text, fontsize=font_size)
+            text_width = fitz.get_text_length(text, fontname=CJK_FONT, fontsize=font_size)
             point = fitz.Point(max(36, (rect.width - text_width) / 2), rect.height - 28)
-            page.insert_text(point, text, fontsize=font_size, color=(0, 0, 0), overlay=True)
+            page.insert_text(point, text, fontname=CJK_FONT, fontsize=font_size, color=(0, 0, 0), overlay=True)
         doc.save(str(out), garbage=4, deflate=True)
         return len(pages)
     finally:
