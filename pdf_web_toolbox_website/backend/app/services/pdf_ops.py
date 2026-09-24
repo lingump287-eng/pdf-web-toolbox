@@ -8,7 +8,7 @@ import fitz  # PyMuPDF
 from pypdf import PdfReader, PdfWriter\n\nfrom app.utils.files import MAX_DPI, MAX_PAGES_PER_PDF, MAX_TOTAL_PAGES
 
 IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff", ".webp"}
-PDF_EXT = ".pdf"
+PDF_EXT = ".pdf"\nCJK_FONT = "china-s"
 
 
 def normalize_path(path: str | Path) -> Path:
