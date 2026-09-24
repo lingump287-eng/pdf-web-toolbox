@@ -7,7 +7,7 @@ from typing import Literal
 
 import fitz
 from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse\nfrom starlette.concurrency import run_in_threadpool
 
 from app.services.jobs import (
     cancel_job,
@@ -345,30 +345,33 @@ async def info_endpoint(file: UploadFile = File(...), password: str = Form("")):
         handle_upload_error(task_dir, e)
 
 
+def _build_preview(pdf: Path) -> dict:
+    doc = fitz.open(str(pdf))
+    try:
+        if doc.needs_pass:
+            raise ValueError("加密 PDF 暂不支持预览，请先解密")
+        if doc.page_count > MAX_TOTAL_PAGES:
+            raise ValueError(f"PDF 页数超过限制：最多 {MAX_TOTAL_PAGES} 页")
+        count = min(doc.page_count, MAX_PREVIEW_PAGES)
+        pages = []
+        matrix = fitz.Matrix(0.42, 0.42)
+        for i in range(count):
+            pix = doc.load_page(i).get_pixmap(matrix=matrix, alpha=False)
+            data = base64.b64encode(pix.tobytes("jpeg", jpg_quality=52)).decode("ascii")
+            pages.append({"page": i + 1, "image": f"data:image/jpeg;base64,{data}"})
+        return {"page_count": doc.page_count, "previewed": count, "pages": pages}
+    finally:
+        doc.close()
+
+
 @router.post("/preview")
 async def preview_endpoint(file: UploadFile = File(...)):
     task_dir = new_task_dir()
     try:
         pdf = await save_one_pdf(file, task_dir)
-        doc = fitz.open(str(pdf))
-        try:
-            if doc.needs_pass:
-                raise ValueError("加密 PDF 暂不支持预览，请先解密")
-            if doc.page_count > MAX_TOTAL_PAGES:
-                raise ValueError(f"PDF 页数超过限制：最多 {MAX_TOTAL_PAGES} 页")
-            count = min(doc.page_count, MAX_PREVIEW_PAGES)
-            pages = []
-            matrix = fitz.Matrix(0.45, 0.45)
-            for i in range(count):
-                pix = doc.load_page(i).get_pixmap(matrix=matrix, alpha=False)
-                data = base64.b64encode(pix.tobytes("jpeg", jpg_quality=55)).decode("ascii")
-                pages.append({"page": i + 1, "image": f"data:image/jpeg;base64,{data}"})
-            return {"page_count": doc.page_count, "previewed": count, "pages": pages}
-        finally:
-            doc.close()
+        return await run_in_threadpool(_build_preview, pdf)
     except Exception as e:
         if isinstance(e, ValueError):
-            remove_tree(task_dir)
             raise HTTPException(status_code=400, detail=str(e))
         handle_upload_error(task_dir, e)
     finally:
