@@ -99,7 +99,10 @@ async def request_guard(request: Request, call_next):
     response.headers.setdefault("Referrer-Policy", "same-origin")
     response.headers.setdefault("X-Frame-Options", "DENY")
     response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
-    if request.url.path == "/" or request.url.path.endswith(".html"):
+    if request.url.path == "/api/config":
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["Clear-Site-Data"] = '"cache"'
+    elif request.url.path == "/" or request.url.path == "/ui-v5" or request.url.path.endswith(".html"):
         response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
     elif request.url.path.startswith("/static/"):
         response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
@@ -121,6 +124,7 @@ def config() -> dict[str, int]:
         "max_total_pages": MAX_TOTAL_PAGES,
         "max_dpi": MAX_DPI,
         "max_preview_pages": MAX_PREVIEW_PAGES,
+        "frontend_version": "5.1.2",
     }
 
 
@@ -134,6 +138,16 @@ def serve_index():
         return FileResponse(str(INDEX_FILE))
     return JSONResponse(
         {"message": "PDF Web Toolbox API is running, but frontend files were not found."},
+        status_code=500,
+    )
+
+
+@app.get("/ui-v5")
+def serve_ui_v5():
+    if INDEX_FILE.exists():
+        return FileResponse(str(INDEX_FILE))
+    return JSONResponse(
+        {"message": "PDF Web Toolbox frontend files were not found."},
         status_code=500,
     )
 
