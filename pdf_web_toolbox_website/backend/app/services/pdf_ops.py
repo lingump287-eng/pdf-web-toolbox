@@ -232,6 +232,10 @@ def pdf_to_images(pdf_path: str | Path, output_folder: str | Path, dpi: int = 30
 
     doc = fitz.open(str(p))
     try:
+        if doc.needs_pass:
+            raise ValueError("该 PDF 已加密，请先解密后再添加水印")
+        if doc.page_count > MAX_PAGES_PER_PDF:
+            raise ValueError(f"PDF 页数超过限制：最多 {MAX_PAGES_PER_PDF} 页")
         pages = parse_page_ranges(range_text, doc.page_count)
         zoom = dpi / 72.0
         matrix = fitz.Matrix(zoom, zoom)
@@ -279,6 +283,8 @@ def encrypt_pdf(pdf_path: str | Path, output_path: str | Path, user_password: st
     reader = PdfReader(str(normalize_path(pdf_path)))
     if reader.is_encrypted:
         raise ValueError("该 PDF 已经加密，如需重新设置密码请先解密")
+    if len(reader.pages) > MAX_PAGES_PER_PDF:
+        raise ValueError(f"PDF 页数超过限制：最多 {MAX_PAGES_PER_PDF} 页")
     writer = PdfWriter()
     for page in reader.pages:
         writer.add_page(page)
@@ -299,6 +305,8 @@ def decrypt_pdf(pdf_path: str | Path, output_path: str | Path, password: str) ->
         raise ValueError("该 PDF 未加密，无需解密")
     if not reader.decrypt(password):
         raise ValueError("密码错误，无法解密")
+    if len(reader.pages) > MAX_PAGES_PER_PDF:
+        raise ValueError(f"PDF 页数超过限制：最多 {MAX_PAGES_PER_PDF} 页")
     writer = PdfWriter()
     for page in reader.pages:
         writer.add_page(page)
@@ -357,6 +365,10 @@ def add_page_numbers(
     out = ensure_parent_dir(output_path)
     doc = fitz.open(str(p))
     try:
+        if doc.needs_pass:
+            raise ValueError("该 PDF 已加密，请先解密后再添加页码")
+        if doc.page_count > MAX_PAGES_PER_PDF:
+            raise ValueError(f"PDF 页数超过限制：最多 {MAX_PAGES_PER_PDF} 页")
         pages = parse_page_ranges(range_text, doc.page_count)
         for n, idx in enumerate(pages, start=start_number):
             page = doc.load_page(idx)
