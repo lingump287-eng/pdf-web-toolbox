@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import io
+import math
 import os
 from pathlib import Path
 from typing import Sequence
 
 import fitz  # PyMuPDF
+from PIL import Image
 from pypdf import PdfReader, PdfWriter
 
 from app.utils.files import MAX_DPI, MAX_PAGES_PER_PDF, MAX_TOTAL_PAGES
@@ -242,11 +245,14 @@ def pdf_to_images(pdf_path: str | Path, output_folder: str | Path, dpi: int = 30
         if doc.page_count > MAX_PAGES_PER_PDF:
             raise ValueError(f"PDF 页数超过限制：最多 {MAX_PAGES_PER_PDF} 页")
         pages = parse_page_ranges(range_text, doc.page_count)
-        zoom = dpi / 72.0
-        matrix = fitz.Matrix(zoom, zoom)
         for idx in pages:
             page = doc.load_page(idx)
-            pix = page.get_pixmap(matrix=matrix, alpha=False)
+            # Use the dpi argument directly so PyMuPDF stores the physical
+            # resolution in the exported PNG/JPG. Using Matrix(dpi / 72)
+            # changes pixel dimensions but leaves image DPI at the default
+            # (typically 96), which makes a later image->PDF conversion
+            # produce physically oversized PDF pages.
+            pix = page.get_pixmap(dpi=dpi, alpha=False)
             out = folder / f"{p.stem}_page_{idx + 1:03d}.{fmt}"
             pix.save(str(out))
         return len(pages)
@@ -254,27 +260,85 @@ def pdf_to_images(pdf_path: str | Path, output_folder: str | Path, dpi: int = 30
         doc.close()
 
 
+def _safe_image_dpi(info: dict) -> tuple[float, float]:
+    """Return trustworthy image DPI, falling back to 96 when metadata is absent."""
+    raw = info.get("dpi") if info else None
+
+    def valid(value) -> float | None:
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return None
+        if not math.isfinite(number) or number < 30 or number > 1200:
+            return None
+        return number
+
+    if isinstance(raw, (tuple, list)) and len(raw) >= 2:
+        x_dpi = valid(raw[0])
+        y_dpi = valid(raw[1])
+        if x_dpi and y_dpi:
+            return x_dpi, y_dpi
+    elif raw is not None:
+        dpi = valid(raw)
+        if dpi:
+            return dpi, dpi
+
+    # A bitmap without physical-resolution metadata has no objectively
+    # recoverable print size. 96 DPI is a conservative screen-image fallback.
+    return 96.0, 96.0
+
+
 def images_to_pdf(image_files: Sequence[str | Path], output_path: str | Path) -> int:
     if not image_files:
         raise ValueError("图片列表为空")
+
     out_doc = fitz.open()
     try:
         for img_path in image_files:
             p = normalize_path(img_path)
             if p.suffix.lower() not in IMAGE_EXTS:
                 continue
-            img_doc = fitz.open(str(p))
-            try:
-                pdf_bytes = img_doc.convert_to_pdf()
-                img_pdf = fitz.open("pdf", pdf_bytes)
-                try:
-                    out_doc.insert_pdf(img_pdf)
-                finally:
-                    img_pdf.close()
-            finally:
-                img_doc.close()
+
+            with Image.open(p) as image:
+                frame_count = max(1, int(getattr(image, "n_frames", 1)))
+                for frame_index in range(frame_count):
+                    if frame_count > 1:
+                        image.seek(frame_index)
+
+                    x_dpi, y_dpi = _safe_image_dpi(image.info)
+                    width_pt = image.width * 72.0 / x_dpi
+                    height_pt = image.height * 72.0 / y_dpi
+                    if width_pt <= 0 or height_pt <= 0:
+                        raise ValueError(f"图片尺寸无效：{p.name}")
+
+                    page = out_doc.new_page(width=width_pt, height=height_pt)
+
+                    if frame_count == 1:
+                        # Keep the original image stream when possible to avoid
+                        # unnecessary re-encoding and quality loss.
+                        page.insert_image(
+                            page.rect,
+                            filename=str(p),
+                            keep_proportion=False,
+                        )
+                    else:
+                        # Multi-frame formats (for example TIFF) need one PDF
+                        # page per frame. Encode only the current frame to PNG.
+                        frame = image.copy()
+                        if frame.mode not in {"RGB", "RGBA", "L"}:
+                            has_alpha = "A" in frame.getbands()
+                            frame = frame.convert("RGBA" if has_alpha else "RGB")
+                        buffer = io.BytesIO()
+                        frame.save(buffer, format="PNG")
+                        page.insert_image(
+                            page.rect,
+                            stream=buffer.getvalue(),
+                            keep_proportion=False,
+                        )
+
         if out_doc.page_count == 0:
             raise ValueError("未找到可转换的图片文件")
+
         out = ensure_parent_dir(output_path)
         out_doc.save(str(out))
         return out_doc.page_count
