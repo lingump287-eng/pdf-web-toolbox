@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#d93025" />
   <title>PDF 工具箱｜免费在线 PDF 处理</title>
   <meta name="description" content="免费在线合并、拆分、旋转、转换、加密 PDF。文件仅用于当前处理任务，并在任务结束后自动清理。" />
-  <link rel="stylesheet" href="/static/style.css?v=5.1.4" />
+  <link rel="stylesheet" href="/static/style.css?v=5.2.0" />
 </head>
 <body>
   <header class="topbar">
@@ -74,7 +74,7 @@
       <section class="hero-card">
         <div class="hero-icon">PDF</div>
         <div class="hero-copy">
-          <p class="eyebrow">在线 PDF 工具</p>
+          <p class="eyebrow">PDF 自动化工具</p>
           <h1 id="toolTitle">PDF 合并</h1>
           <p id="toolDesc">上传多个 PDF，按列表顺序合并为一个文件。</p>
         </div>
@@ -129,6 +129,17 @@
                 <h3>参数设置</h3>
               </div>
               <span id="paramHint">根据当前功能自动显示</span>
+            </div>
+
+
+            <div id="workflowPanel" class="form-grid hidden">
+              <label><span>文件顺序</span><select id="workflowSort"><option value="upload">当前列表顺序</option><option value="filename">按文件名自然排序</option></select></label>
+              <label><span>统一页面尺寸</span><select id="workflowPageSize"><option value="keep">保持原尺寸</option><option value="A4">A4（保留横向）</option><option value="A3">A3（保留横向）</option><option value="Letter">Letter（保留横向）</option></select></label>
+              <label><span>合并设置</span><select id="workflowMerge"><option value="yes">合并为一份PDF</option><option value="no">分别处理（ZIP下载）</option></select></label>
+              <label><span>页码起始值</span><input id="workflowStart" type="number" min="1" max="10000" value="1" /></label>
+              <label><span>页码</span><select id="workflowNumber"><option value="no">不添加</option><option value="yes">添加底部居中页码</option></select></label>
+              <label><span>无损文件优化</span><select id="workflowCompress"><option value="no">不启用</option><option value="yes">启用（不保证显著变小）</option></select></label>
+              <p class="wide" style="margin:0;color:var(--muted);font-size:.85rem;">固定处理顺序：排序 → 尺寸统一 → 合并 → 添加页码 → 无损优化。此版本暂不支持自动删除空白页和保存模板。</p>
             </div>
 
             <div id="pageRangePanel" class="form-grid hidden">
@@ -230,6 +241,6 @@
   </div>
 
   <div id="navBackdrop" class="nav-backdrop hidden"></div>
-  <script src="/static/app.js?v=5.1.4"></script>
+  <script src="/static/app.js?v=5.2.0"></script>
 </body>
 </html>
