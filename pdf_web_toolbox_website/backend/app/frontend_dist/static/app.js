@@ -1,4 +1,5 @@
 const tools = [
+  { id: 'workflow', label: 'PDF 一键工作流', desc: '多次添加PDF，一次完成排序、统一尺寸、合并、页码和无损优化。', endpoint: '/api/pdf/workflow', accept: '.pdf,application/pdf', multiple: true, outputName: 'workflow_result.pdf', tips: ['本版支持固定的安全执行顺序。', '可以统一 A4、A3、Letter 页面尺寸。', '页码在合并后添加。', '无损优化无法保证每份PDF都会变小。'] },
   { id: 'merge', label: 'PDF 合并', desc: '上传多个 PDF，按列表顺序合并为一个文件。', endpoint: '/api/pdf/merge', accept: '.pdf,application/pdf', multiple: true, outputName: 'merged.pdf', tips: ['至少上传 2 个 PDF。', '合并顺序与文件列表顺序一致。', '可用上移、下移按钮调整顺序。'] },
   { id: 'extract', label: '页面提取', desc: '从单个 PDF 中提取指定页码范围。', endpoint: '/api/pdf/extract', accept: '.pdf,application/pdf', multiple: false, outputName: 'extracted.pdf', tips: ['可直接点击页面缩略图选择。', '页码从 1 开始。', '页码范围留空表示提取全部页面。'] },
   { id: 'delete-pages', label: '删除页面', desc: '删除指定页面后生成新的 PDF。', endpoint: '/api/pdf/delete-pages', accept: '.pdf,application/pdf', multiple: false, outputName: 'deleted_pages.pdf', tips: ['可直接点击缩略图选择要删除的页面。', '不能删除全部页面。', '也可手工输入：2, 4-6。'] },
@@ -27,7 +28,7 @@ const state = {
 };
 
 const $ = id => document.getElementById(id);
-const panels = ['pageRangePanel', 'rotatePanel', 'imagePanel', 'watermarkPanel', 'pageNumberPanel', 'passwordPanel'];
+const panels = ['workflowPanel', 'pageRangePanel', 'rotatePanel', 'imagePanel', 'watermarkPanel', 'pageNumberPanel', 'passwordPanel'];
 const pageRangeTools = new Set(['extract', 'delete-pages', 'rotate', 'to-images', 'watermark', 'page-number']);
 
 function currentTool() { return tools.find(t => t.id === state.activeId) || tools[0]; }
@@ -48,6 +49,7 @@ function escapeHtml(text) {
 
 function renderNav() {
   const groups = [
+    { label: '自动化工作流', ids: ['workflow'] },
     { label: '常用工具', ids: ['merge', 'split', 'extract', 'delete-pages'] },
     { label: '页面处理', ids: ['rotate', 'watermark', 'page-number', 'info'] },
     { label: '格式转换', ids: ['to-images', 'images-to-pdf'] },
@@ -107,6 +109,7 @@ function renderAll() {
       ? '支持 PDF 文件 · 可分多次从不同文件夹添加'
       : '支持 PDF 文件';
   panels.forEach(id => $(id).classList.add('hidden'));
+  if (tool.id === 'workflow') $('workflowPanel').classList.remove('hidden');
   if (pageRangeTools.has(tool.id)) $('pageRangePanel').classList.remove('hidden');
   if (tool.id === 'rotate') $('rotatePanel').classList.remove('hidden');
   if (tool.id === 'to-images') $('imagePanel').classList.remove('hidden');
@@ -298,6 +301,17 @@ function validateBeforeRun() {
 function buildFormData() {
   const tool=currentTool(), fd=new FormData();
   if (tool.multiple) state.files.forEach(file=>fd.append('files',file)); else fd.append('file',state.files[0]);
+  if (tool.id === 'workflow') {
+    const settings = {
+      sort_by: $('workflowSort').value,
+      page_size: $('workflowPageSize').value,
+      merge: $('workflowMerge').checked,
+      page_numbers: $('workflowNumber').checked,
+      compress: $('workflowCompress').checked,
+      start_number: Number($('workflowStart').value) || 1
+    };
+    fd.append('settings', JSON.stringify(settings));
+  }
   if (pageRangeTools.has(tool.id)) fd.append('range_text',$('rangeText').value.trim());
   if (tool.id==='rotate') { fd.append('degrees',$('degrees').value); fd.append('mode',$('rotateMode').value); }
   if (tool.id==='to-images') { fd.append('dpi',$('dpi').value); fd.append('image_format',$('imageFormat').value); }
@@ -371,6 +385,7 @@ async function pollJob(jobId) {
 
 function actionLabel() {
   const labels = {
+    workflow: '一键执行 PDF 工作流',
     merge: '合并 PDF',
     extract: '提取页面',
     'delete-pages': '删除页面',
