@@ -11,6 +11,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from starlette.concurrency import run_in_threadpool
 
 from app.services.workflow import WorkflowOptions, run_workflow
+from app.services.blank_scan import scan_blank_pages
 from app.services.jobs import (
     cancel_job,
     cleanup_job,
@@ -451,3 +452,26 @@ async def workflow_endpoint(
         return accepted(job.id)
     except Exception as exc:
         handle_upload_error(task_dir, exc)
+
+
+@router.post("/workflow/blank-scan")
+async def workflow_blank_scan_endpoint(files: list[UploadFile] = File(...)):
+    """Produce suggestions and previews only; never delete pages during scanning."""
+    task_dir = new_task_dir()
+    try:
+        if not files:
+            raise ValueError("请至少上传一个 PDF")
+        validate_file_count(files)
+        paths = [
+            await save_upload(file, task_dir / "input", f"document_{i}.pdf", PDF_ALLOWED)
+            for i, file in enumerate(files, start=1)
+        ]
+        validate_total_size(paths)
+        return await run_in_threadpool(scan_blank_pages, paths)
+    except Exception as exc:
+        if isinstance(exc, ValueError):
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        logger.exception("Blank-page scan failed")
+        raise HTTPException(status_code=500, detail="扫描失败，请检查文件后重试") from exc
+    finally:
+        remove_tree(task_dir)
