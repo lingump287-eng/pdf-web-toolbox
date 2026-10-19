@@ -162,10 +162,6 @@ function validateFiles(files) {
   if (total > cfg.max_total_mb * 1024 * 1024) throw new Error(`文件总大小超过 ${cfg.max_total_mb} MB 限制。`);
 }
 
-function fileIdentity(file) {
-  return [file.name, file.size, file.lastModified || 0, file.webkitRelativePath || ''].join('::');
-}
-
 function setFiles(fileList) {
   if (state.busy) return;
   try {
@@ -176,31 +172,12 @@ function setFiles(fileList) {
     const bad = incoming.find(file => !fileCompatibleWithTool(file, tool));
     if (bad) throw new Error(`${bad.name} 不是当前工具支持的文件类型。`);
 
-    let candidate;
-    let addedCount = 0;
-    let skippedCount = 0;
-    if (tool.multiple) {
-      const known = new Set(state.files.map(fileIdentity));
-      const additions = [];
-      for (const file of incoming) {
-        const key = fileIdentity(file);
-        if (known.has(key)) {
-          skippedCount++;
-          continue;
-        }
-        known.add(key);
-        additions.push(file);
-      }
-      if (!additions.length) {
-        setStatus(`所选 ${incoming.length} 个文件已在列表中，未重复添加。`);
-        return;
-      }
-      addedCount = additions.length;
-      candidate = [...state.files, ...additions];
-    } else {
-      candidate = incoming.slice(0, 1);
-      addedCount = candidate.length;
-    }
+    // Keep intentional duplicate selections: two files with identical metadata
+    // can still have different content, and the user controls the final list.
+    const candidate = tool.multiple
+      ? [...state.files, ...incoming]
+      : incoming.slice(0, 1);
+    const addedCount = tool.multiple ? incoming.length : candidate.length;
 
     // Validate the combined selection before mutating the existing file list.
     // A failed batch must never discard files selected from earlier folders.
@@ -219,7 +196,7 @@ function setFiles(fileList) {
 
     if (tool.multiple) {
       const totalBytes = state.files.reduce((sum, file) => sum + file.size, 0);
-      setStatus(`本次新增 ${addedCount} 个文件，共 ${state.files.length} 个（${formatSize(totalBytes)}）。${skippedCount ? `跳过 ${skippedCount} 个重复文件。` : ''}`);
+      setStatus(`本次新增 ${addedCount} 个文件，共 ${state.files.length} 个（${formatSize(totalBytes)}）。`);
     } else {
       setStatus(`已选择 ${addedCount} 个文件。`);
     }
