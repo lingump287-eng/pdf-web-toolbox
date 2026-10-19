@@ -13,6 +13,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.api.pdf import job_router, router as pdf_router
+from app.services.jobs import start_cleanup_thread, cleanup_orphaned_task_dirs
 from app.utils.files import (
     MAX_DPI,
     MAX_FILE_MB,
@@ -60,6 +61,12 @@ if allowed_origins:
 
 app.include_router(pdf_router)
 app.include_router(job_router)
+
+
+@app.on_event("startup")
+def start_maintenance() -> None:
+    cleanup_orphaned_task_dirs()
+    start_cleanup_thread()
 
 _rate_lock = threading.Lock()
 _rate_events: dict[str, deque[float]] = defaultdict(deque)
