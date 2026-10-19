@@ -41,7 +41,9 @@ def scan_blank_pages(paths: Sequence[Path]) -> dict:
                     continue
                 # Low DPI grayscale is sufficient for proposing visually white pages;
                 # rich previews are rendered only for possible candidates.
-                pix = page.get_pixmap(matrix=fitz.Matrix(0.7, 0.7),
+                # Cap the longer raster edge for unusually large page boxes.
+                scan_scale = min(0.7, 700.0 / max(1.0, page.rect.width, page.rect.height))
+                pix = page.get_pixmap(matrix=fitz.Matrix(scan_scale, scan_scale),
                                       colorspace=fitz.csGRAY, alpha=False,
                                       annots=True)
                 samples = pix.samples
@@ -52,7 +54,8 @@ def scan_blank_pages(paths: Sequence[Path]) -> dict:
                 if len(candidates) >= MAX_SUGGESTIONS:
                     truncated = True
                     continue
-                preview = page.get_pixmap(matrix=fitz.Matrix(0.55, 0.55),
+                preview_scale = min(0.55, 480.0 / max(1.0, page.rect.width, page.rect.height))
+                preview = page.get_pixmap(matrix=fitz.Matrix(preview_scale, preview_scale),
                                           alpha=False, annots=True)
                 image = base64.b64encode(preview.tobytes("jpeg", jpg_quality=58)).decode("ascii")
                 candidates.append({
