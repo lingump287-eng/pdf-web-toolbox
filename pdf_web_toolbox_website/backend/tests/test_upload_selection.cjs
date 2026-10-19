@@ -32,7 +32,7 @@ const f = name => ({name, size: 100, lastModified: 12});
 context.setFiles([f('a.pdf'), f('b.pdf')]);
 context.setFiles([f('c.pdf')]);
 assert.equal(state.files.length, 3, 'second selection should append');
-assert.deepEqual(state.files.map(x => x.name), ['a.pdf','b.pdf','c.pdf']);
+assert.equal(state.files.map(x => x.name).join('|'), 'a.pdf|b.pdf|c.pdf');
 context.setFiles([f('a.pdf')]);
 assert.equal(state.files.length, 4, 'intentional duplicate must remain');
 assert.equal(elements.fileInput.value, '', 'chooser value must reset');
