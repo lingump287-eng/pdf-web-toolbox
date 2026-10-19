@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#d93025" />
   <title>PDF 工具箱｜免费在线 PDF 处理</title>
   <meta name="description" content="免费在线合并、拆分、旋转、转换、加密 PDF。文件仅用于当前处理任务，并在任务结束后自动清理。" />
-  <link rel="stylesheet" href="/static/style.css?v=5.1.1" />
+  <link rel="stylesheet" href="/static/style.css?v=5.1.4" />
 </head>
 <body>
   <header class="topbar">
@@ -100,8 +100,12 @@
                 <span class="section-kicker">FILES</span>
                 <h3>文件列表</h3>
               </div>
-              <button id="clearFilesBtn" class="ghost-btn" type="button">清空</button>
+              <div class="file-toolbar">
+                <button id="addMoreBtn" class="ghost-btn add-more-btn hidden" type="button">＋ 继续添加文件</button>
+                <button id="clearFilesBtn" class="ghost-btn" type="button">清空</button>
+              </div>
             </div>
+            <p id="fileSummary" class="file-summary hidden"></p>
             <div id="fileList" class="file-list empty">尚未选择文件。</div>
           </div>
 
@@ -226,6 +230,6 @@
   </div>
 
   <div id="navBackdrop" class="nav-backdrop hidden"></div>
-  <script src="/static/app.js?v=5.1.1"></script>
+  <script src="/static/app.js?v=5.1.4"></script>
 </body>
 </html>
