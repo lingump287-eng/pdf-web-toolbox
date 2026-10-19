@@ -728,3 +728,20 @@ select:focus {
   .file-toolbar { gap: 6px; }
   .file-toolbar button { padding: 7px 8px; }
 }
+
+/* Workflow templates and blank-page review (v5.3) */
+.workflow-extra-section { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; padding: 16px; border: 1px solid var(--line); border-radius: 12px; background: #fcfcfd; min-width: 0; }
+.workflow-extra-section h4 { margin: 0; font-size: 16px; font-weight: 800; color: #2a2f37; }
+.workflow-extra-section label { width: 100%; }
+.workflow-help, .workflow-explain { font-size: 12px; line-height: 1.7; color: var(--muted); margin: 0; }
+.workflow-explain { margin-top: 8px; }
+.workflow-button-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.workflow-button-row button { min-height: 36px; font-size: 12px; }
+.workflow-button-row button:disabled { opacity: .55; cursor: wait; }
+.workflow-blank-results { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 12px; max-height: 430px; overflow-y: auto; padding: 5px 1px; }
+.workflow-blank-results[hidden] { display: none; }
+.workflow-blank-item { display: flex; flex-direction: column; align-items: center; gap: 7px; border: 1px solid var(--line); border-radius: 10px; background: #fff; padding: 9px; text-align: center; font-size: 11px; line-height: 1.45; min-width: 0; word-break: break-word; cursor: pointer; }
+.workflow-blank-item input { align-self: flex-start; height: 18px; width: 18px; accent-color: var(--primary); }
+.workflow-blank-preview { width: 100%; height: 135px; object-fit: contain; background: #f4f5f6; border: 1px solid #e4e7ea; }
+.workflow-blank-item:has(input:checked) { border-color: var(--primary); background: #fff7f6; }
+#workflowConfirmDeletion:not([hidden]) { width: fit-content; border-color: #e0aaa6; background: #fff5f4; color: #b42318; font-weight: 800; }

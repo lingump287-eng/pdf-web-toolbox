@@ -35,6 +35,9 @@ class WorkflowOptions(BaseModel):
     page_numbers: bool = False
     compress: bool = False
     start_number: int = Field(default=1, ge=1, le=10000)
+    # Keys are 0-based upload indices; values are 1-based page numbers.
+    delete_pages: dict[int, list[int]] = Field(default_factory=dict)
+    deletions_confirmed: bool = False
 
 
 def natural_name_key(path: Path):
@@ -113,9 +116,33 @@ def run_workflow(
 ) -> tuple[Path, str, str]:
     paths = [Path(p) for p in pdf_files]
     total_pages = validate_pdfs(paths)
+    result_dir.mkdir(parents=True, exist_ok=True)
+    selections = {i: set(pages) for i, pages in options.delete_pages.items() if pages}
+    if selections and not options.deletions_confirmed:
+        raise ValueError("删除疑似空白页之前必须明确确认")
+    for file_index, pages in selections.items():
+        if file_index < 0 or file_index >= len(paths):
+            raise ValueError(f"文件序号无效：{file_index}")
+        count = len(PdfReader(str(paths[file_index])).pages)
+        if not pages or any(p < 1 or p > count for p in pages):
+            raise ValueError(f"删除页码超出范围：{paths[file_index].name}")
+        if len(pages) >= count:
+            raise ValueError(f"不能删除文件的全部页面：{paths[file_index].name}")
+    if selections:
+        filtered = result_dir / "_filtered_input"
+        filtered.mkdir(exist_ok=True)
+        for i, path in enumerate(paths):
+            if i not in selections:
+                continue
+            with fitz.open(str(path)) as doc:
+                keep = [p for p in range(doc.page_count) if p + 1 not in selections[i]]
+                doc.select(keep)
+                filtered_path = filtered / path.name
+                doc.save(str(filtered_path), garbage=4, deflate=True)
+                paths[i] = filtered_path
+        total_pages -= sum(len(pages) for pages in selections.values())
     if options.sort_by == "filename":
         paths.sort(key=natural_name_key)
-    result_dir.mkdir(parents=True, exist_ok=True)
 
     def stage(value: int, message: str):
         if cancelled and cancelled():

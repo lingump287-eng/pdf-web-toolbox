@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#d93025" />
   <title>PDF 工具箱｜免费在线 PDF 处理</title>
   <meta name="description" content="免费在线合并、拆分、旋转、转换、加密 PDF。文件仅用于当前处理任务，并在任务结束后自动清理。" />
-  <link rel="stylesheet" href="/static/style.css?v=5.2.0" />
+  <link rel="stylesheet" href="/static/style.css?v=5.3.0" />
 </head>
 <body>
   <header class="topbar">
@@ -139,7 +139,30 @@
               <label><span>页码起始值</span><input id="workflowStart" type="number" min="1" max="10000" value="1" /></label>
               <label><span>页码</span><select id="workflowNumber"><option value="no">不添加</option><option value="yes">添加底部居中页码</option></select></label>
               <label><span>无损文件优化</span><select id="workflowCompress"><option value="no">不启用</option><option value="yes">启用（不保证显著变小）</option></select></label>
-              <p class="wide" style="margin:0;color:var(--muted);font-size:.85rem;">固定处理顺序：排序 → 尺寸统一 → 合并 → 添加页码 → 无损优化。此版本暂不支持自动删除空白页和保存模板。</p>
+              <p class="wide workflow-explain">固定顺序：排序 → 检查已确认的删除页 → 页面统一 → 合并 → 页码 → 无损优化。调整页面尺寸可能影响 PDF 批注、链接等互动元素。</p>
+              <section class="wide workflow-extra-section" aria-label="工作流模板">
+                <h4>我的工作流模板</h4>
+                <p class="workflow-help">仅将处理参数存储在本浏览器，不保存上传文件；更换浏览器或清理浏览器数据可能丢失。</p>
+                <label><span>模板名称（最多40字）</span><input id="workflowTemplateName" maxlength="40" placeholder="例如：实验报告整理" /></label>
+                <label><span>已保存模板</span><select id="workflowTemplateSelect"><option value="">选择一个模板</option></select></label>
+                <div class="workflow-button-row">
+                  <button type="button" id="workflowTemplateSave" class="ghost-btn">保存当前配置</button>
+                  <button type="button" id="workflowTemplateLoad" class="ghost-btn">加载模板</button>
+                  <button type="button" id="workflowTemplateDelete" class="ghost-btn">删除模板</button>
+                </div>
+                <p id="workflowTemplateMessage" class="workflow-help" role="status"></p>
+              </section>
+              <section class="wide workflow-extra-section" aria-label="疑似空白页扫描">
+                <h4>空白页检测（需人工确认）</h4>
+                <p class="workflow-help">点击扫描后查看每一页缩略图。系统不会自动删除；只有你勾选并二次确认的页面才会移除。若文件列表发生变化，需要重新扫描。</p>
+                <div class="workflow-button-row">
+                  <button type="button" id="workflowScanBtn" class="ghost-btn">扫描疑似空白页</button>
+                  <button type="button" id="workflowScanClear" class="ghost-btn">取消删除选择</button>
+                </div>
+                <p id="workflowScanStatus" class="workflow-help" role="status"></p>
+                <div id="workflowBlankResults" class="workflow-blank-results" hidden></div>
+                <button type="button" id="workflowConfirmDeletion" class="ghost-btn" hidden>确认删除勾选的页面</button>
+              </section>
             </div>
 
             <div id="pageRangePanel" class="form-grid hidden">
@@ -241,6 +264,7 @@
   </div>
 
   <div id="navBackdrop" class="nav-backdrop hidden"></div>
-  <script src="/static/app.js?v=5.2.0"></script>
+  <script src="/static/app.js?v=5.3.0"></script>
+  <script src="/static/workflow_extras.js?v=5.3.0"></script>
 </body>
 </html>

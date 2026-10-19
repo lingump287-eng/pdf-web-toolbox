@@ -87,6 +87,7 @@ function switchTool(id) {
   const next = tools.find(t => t.id === id) || tools[0];
   state.activeId = next.id;
   state.files = state.files.filter(f => fileCompatibleWithTool(f, next));
+  if (window.resetWorkflowScan) window.resetWorkflowScan();
   if (!next.multiple && state.files.length > 1) state.files = state.files.slice(0, 1);
   $('fileInput').value = '';
   $('password').value = ''; $('ownerPassword').value = '';
@@ -187,6 +188,7 @@ function setFiles(fileList) {
     validateFiles(candidate);
 
     state.files = candidate;
+    if (window.resetWorkflowScan) window.resetWorkflowScan();
     renderFiles();
     $('resultCard').classList.add('hidden');
     $('completedCard').classList.add('hidden');
@@ -213,10 +215,13 @@ function setFiles(fileList) {
 
 function moveFile(index, direction) {
   const target = index + direction; if (target < 0 || target >= state.files.length) return;
-  [state.files[index], state.files[target]] = [state.files[target], state.files[index]]; renderFiles();
+  [state.files[index], state.files[target]] = [state.files[target], state.files[index]];
+  if (window.resetWorkflowScan) window.resetWorkflowScan();
+  renderFiles();
 }
 function removeFile(index) {
-  state.files.splice(index,1); renderFiles(); clearPageSelection(false);
+  state.files.splice(index,1); if (window.resetWorkflowScan) window.resetWorkflowScan();
+  renderFiles(); clearPageSelection(false);
   if (state.files.length === 1 && isPdf(state.files[0])) loadPreview(state.files[0]); else hidePreview();
 }
 
@@ -303,6 +308,8 @@ function buildFormData() {
   if (tool.multiple) state.files.forEach(file=>fd.append('files',file)); else fd.append('file',state.files[0]);
   if (tool.id === 'workflow') {
     const settings = {
+      delete_pages: state.blankApproved || {},
+      deletions_confirmed: !!state.blankApproved,
       sort_by: $('workflowSort').value,
       page_size: $('workflowPageSize').value,
       merge: $('workflowMerge').value === 'yes',
@@ -427,7 +434,7 @@ async function continueEditingResult() {
     if (!res.ok) throw new Error(await parseError(res));
     const blob=await res.blob();
     const file=new File([blob],state.lastFilename,{type:'application/pdf'});
-    state.files=[file]; renderFiles(); $('completedCard').classList.add('hidden'); clearPageSelection(false); await loadPreview(file);
+    state.files=[file]; if (window.resetWorkflowScan) window.resetWorkflowScan(); renderFiles(); $('completedCard').classList.add('hidden'); clearPageSelection(false); await loadPreview(file);
     setStatus('结果已加入工作区。现在可直接选择另一个 PDF 工具继续处理。');
     state.lastDownloadUrl=null; state.lastFilename=null;
   } catch(err) { setStatus(err.message||String(err),true); }
@@ -461,7 +468,7 @@ function bindEvents() {
   $('dropZone').addEventListener('keydown',e=>{ if(!state.busy && (e.key==='Enter'||e.key===' ')) $('fileInput').click(); });
   $('fileInput').addEventListener('change',e=>setFiles(e.target.files));
   $('addMoreBtn').addEventListener('click',()=>{ if(!state.busy) $('fileInput').click(); });
-  $('clearFilesBtn').addEventListener('click',()=>{ if(state.busy)return; state.files=[]; $('fileInput').value=''; renderFiles(); hidePreview(); clearPageSelection(); setStatus('已清空文件列表。'); });
+  $('clearFilesBtn').addEventListener('click',()=>{ if(state.busy)return; state.files=[]; if (window.resetWorkflowScan) window.resetWorkflowScan(); $('fileInput').value=''; renderFiles(); hidePreview(); clearPageSelection(); setStatus('已清空文件列表。'); });
   $('clearSelectionBtn').addEventListener('click',()=>clearPageSelection(true));
   $('fileList').addEventListener('click',e=>{ const b=e.target.closest('button[data-action]'); if(!b||state.busy)return; const i=Number(b.dataset.index); if(b.dataset.action==='up')moveFile(i,-1); if(b.dataset.action==='down')moveFile(i,1); if(b.dataset.action==='remove')removeFile(i); });
   $('runBtn').addEventListener('click',runTool); $('cancelBtn').addEventListener('click',cancelCurrentJob); $('continueBtn').addEventListener('click',continueEditingResult);
