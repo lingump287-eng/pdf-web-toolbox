@@ -305,9 +305,9 @@ function buildFormData() {
     const settings = {
       sort_by: $('workflowSort').value,
       page_size: $('workflowPageSize').value,
-      merge: $('workflowMerge').checked,
-      page_numbers: $('workflowNumber').checked,
-      compress: $('workflowCompress').checked,
+      merge: $('workflowMerge').value === 'yes',
+      page_numbers: $('workflowNumber').value === 'yes',
+      compress: $('workflowCompress').value === 'yes',
       start_number: Number($('workflowStart').value) || 1
     };
     fd.append('settings', JSON.stringify(settings));
