@@ -51,6 +51,10 @@ def validate_pdfs(paths: Sequence[Path]) -> int:
             with path.open("rb") as fd:
                 if fd.read(5) != b"%PDF-":
                     raise ValueError("文件头不是有效 PDF")
+            # PyMuPDF detects encryption without requiring optional AES libraries.
+            with fitz.open(str(path)) as peek:
+                if peek.needs_pass:
+                    raise ValueError("文件已加密，请先解密")
             reader = PdfReader(str(path), strict=True)
             if reader.is_encrypted:
                 raise ValueError("文件已加密，请先解密")
