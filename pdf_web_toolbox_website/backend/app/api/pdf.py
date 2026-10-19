@@ -10,6 +10,7 @@ from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, Uploa
 from fastapi.responses import FileResponse, JSONResponse
 from starlette.concurrency import run_in_threadpool
 
+from app.services.workflow import WorkflowOptions, run_workflow
 from app.services.jobs import (
     cancel_job,
     cleanup_job,
@@ -418,3 +419,35 @@ def job_download(job_id: str):
         media_type=job.media_type,
         filename=job.result_name or job.result_path.name,
     )
+
+
+@router.post("/workflow")
+async def workflow_endpoint(
+    files: list[UploadFile] = File(...),
+    settings: str = Form("{}"),
+):
+    """One upload, one job: sort -> normalize -> merge -> number -> optimize."""
+    task_dir = new_task_dir()
+    try:
+        if not files:
+            raise ValueError("请至少上传一个 PDF")
+        validate_file_count(files)
+        options = WorkflowOptions.model_validate_json(settings)
+        input_dir = task_dir / "input"
+        paths = [
+            await save_upload(file, input_dir, f"document_{i}.pdf", PDF_ALLOWED)
+            for i, file in enumerate(files, start=1)
+        ]
+        validate_total_size(paths)
+        job = create_job(task_dir)
+
+        def work(progress, cancelled):
+            return run_workflow(
+                paths, task_dir / "output", options,
+                progress=progress, cancelled=cancelled,
+            )
+
+        submit_job(job.id, work)
+        return accepted(job.id)
+    except Exception as exc:
+        handle_upload_error(task_dir, exc)
