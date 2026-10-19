@@ -115,7 +115,7 @@ def health() -> dict[str, str]:
 
 
 @app.get("/api/config")
-def config() -> dict[str, int]:
+def config() -> dict[str, int | str]:
     return {
         "max_file_mb": MAX_FILE_MB,
         "max_files_per_request": MAX_FILES_PER_REQUEST,
@@ -157,7 +157,11 @@ def serve_frontend_file(full_path: str):
     if full_path.startswith("api/"):
         return JSONResponse({"detail": "API route not found"}, status_code=404)
 
-    target = FRONTEND_DIR / full_path
+    # Never allow a catch-all frontend route to access files outside the bundled UI.
+    frontend_root = FRONTEND_DIR.resolve()
+    target = (frontend_root / full_path).resolve()
+    if not target.is_relative_to(frontend_root):
+        return JSONResponse({"detail": "Frontend file not found"}, status_code=404)
     if target.exists() and target.is_file():
         return FileResponse(str(target))
     if INDEX_FILE.exists():
