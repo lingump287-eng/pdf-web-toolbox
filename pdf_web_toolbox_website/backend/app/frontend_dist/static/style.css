@@ -718,3 +718,13 @@ select:focus {
   .result-actions > * { flex: 1; }
   .site-footer { flex-direction: column; gap: 5px; }
 }
+
+/* Multi-folder file collection controls */
+.file-toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+.add-more-btn { border-color: #e3b0ac; background: #fff7f6; color: var(--primary); font-weight: 750; }
+.add-more-btn:hover { background: #ffe9e7; border-color: var(--primary); }
+.file-summary { margin: -3px 0 12px; color: #6b7280; font-size: 12px; line-height: 1.6; }
+@media (max-width: 640px) {
+  .file-toolbar { gap: 6px; }
+  .file-toolbar button { padding: 7px 8px; }
+}
