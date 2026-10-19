@@ -101,7 +101,11 @@ function renderAll() {
   const tool = currentTool();
   $('toolTitle').textContent = tool.label; $('toolDesc').textContent = tool.desc; if ($('breadcrumbTool')) $('breadcrumbTool').textContent = tool.label;
   $('fileInput').accept = tool.accept; $('fileInput').multiple = tool.multiple;
-  $('acceptText').textContent = tool.id === 'images-to-pdf' ? '支持 PNG、JPG、BMP、TIFF、WEBP 图片' : '支持 PDF 文件';
+  $('acceptText').textContent = tool.id === 'images-to-pdf'
+    ? '支持 PNG、JPG、BMP、TIFF、WEBP 图片 · 可多次添加'
+    : tool.multiple
+      ? '支持 PDF 文件 · 可分多次从不同文件夹添加'
+      : '支持 PDF 文件';
   panels.forEach(id => $(id).classList.add('hidden'));
   if (pageRangeTools.has(tool.id)) $('pageRangePanel').classList.remove('hidden');
   if (tool.id === 'rotate') $('rotatePanel').classList.remove('hidden');
@@ -123,6 +127,13 @@ function renderTips() {
 
 function renderFiles() {
   const list = $('fileList');
+  const tool = currentTool();
+  const totalBytes = state.files.reduce((sum, file) => sum + file.size, 0);
+  $('addMoreBtn').classList.toggle('hidden', !tool.multiple || !state.files.length);
+  $('fileSummary').classList.toggle('hidden', !tool.multiple);
+  $('fileSummary').textContent = state.files.length
+    ? `已添加 ${state.files.length} 个文件 · 共 ${formatSize(totalBytes)} · 可继续从其他文件夹追加`
+    : '可以多次选择不同文件夹的文件，按列表顺序处理';
   if (!state.files.length) { list.className = 'file-list empty'; list.textContent = '尚未选择文件。'; return; }
   list.className = 'file-list'; list.innerHTML = '';
   state.files.forEach((file, index) => {
@@ -151,20 +162,72 @@ function validateFiles(files) {
   if (total > cfg.max_total_mb * 1024 * 1024) throw new Error(`文件总大小超过 ${cfg.max_total_mb} MB 限制。`);
 }
 
+function fileIdentity(file) {
+  return [file.name, file.size, file.lastModified || 0, file.webkitRelativePath || ''].join('::');
+}
+
 function setFiles(fileList) {
+  if (state.busy) return;
   try {
     const tool = currentTool();
-    const files = Array.from(fileList || []);
-    validateFiles(files);
-    const bad = files.find(f => !fileCompatibleWithTool(f, tool));
+    const incoming = Array.from(fileList || []);
+    if (!incoming.length) return;
+
+    const bad = incoming.find(file => !fileCompatibleWithTool(file, tool));
     if (bad) throw new Error(`${bad.name} 不是当前工具支持的文件类型。`);
-    state.files = tool.multiple ? files : files.slice(0, 1);
-    renderFiles(); $('resultCard').classList.add('hidden'); $('completedCard').classList.add('hidden');
+
+    let candidate;
+    let addedCount = 0;
+    let skippedCount = 0;
+    if (tool.multiple) {
+      const known = new Set(state.files.map(fileIdentity));
+      const additions = [];
+      for (const file of incoming) {
+        const key = fileIdentity(file);
+        if (known.has(key)) {
+          skippedCount++;
+          continue;
+        }
+        known.add(key);
+        additions.push(file);
+      }
+      if (!additions.length) {
+        setStatus(`所选 ${incoming.length} 个文件已在列表中，未重复添加。`);
+        return;
+      }
+      addedCount = additions.length;
+      candidate = [...state.files, ...additions];
+    } else {
+      candidate = incoming.slice(0, 1);
+      addedCount = candidate.length;
+    }
+
+    // Validate the combined selection before mutating the existing file list.
+    // A failed batch must never discard files selected from earlier folders.
+    validateFiles(candidate);
+
+    state.files = candidate;
+    renderFiles();
+    $('resultCard').classList.add('hidden');
+    $('completedCard').classList.add('hidden');
     clearPageSelection(false);
-    setStatus(state.files.length ? `已选择 ${state.files.length} 个文件。` : '等待上传文件。');
-    if (state.files.length === 1 && isPdf(state.files[0])) loadPreview(state.files[0]); else hidePreview();
+    if (state.files.length === 1 && isPdf(state.files[0])) {
+      loadPreview(state.files[0]);
+    } else {
+      hidePreview();
+    }
+
+    if (tool.multiple) {
+      const totalBytes = state.files.reduce((sum, file) => sum + file.size, 0);
+      setStatus(`本次新增 ${addedCount} 个文件，共 ${state.files.length} 个（${formatSize(totalBytes)}）。${skippedCount ? `跳过 ${skippedCount} 个重复文件。` : ''}`);
+    } else {
+      setStatus(`已选择 ${addedCount} 个文件。`);
+    }
   } catch (err) {
     setStatus(err.message || String(err), true);
+  } finally {
+    // A second chooser visit must fire change even after a removed file is picked again.
+    $('fileInput').value = '';
   }
 }
 
@@ -201,7 +264,14 @@ function applySelection() {
   if (state.activeId === 'rotate' && state.selectedPages.size) $('rotateMode').value = 'range';
 }
 
-function hidePreview() { $('previewCard').classList.add('hidden'); $('previewGrid').innerHTML=''; }
+function hidePreview() {
+  if (state.previewAbort) {
+    state.previewAbort.abort();
+    state.previewAbort = null;
+  }
+  $('previewCard').classList.add('hidden');
+  $('previewGrid').innerHTML = '';
+}
 async function loadPreview(file) {
   if (state.previewAbort) state.previewAbort.abort();
   const controller = new AbortController(); state.previewAbort = controller;
@@ -398,6 +468,7 @@ function bindEvents() {
   $('dropZone').addEventListener('click',()=>!state.busy && $('fileInput').click());
   $('dropZone').addEventListener('keydown',e=>{ if(!state.busy && (e.key==='Enter'||e.key===' ')) $('fileInput').click(); });
   $('fileInput').addEventListener('change',e=>setFiles(e.target.files));
+  $('addMoreBtn').addEventListener('click',()=>{ if(!state.busy) $('fileInput').click(); });
   $('clearFilesBtn').addEventListener('click',()=>{ if(state.busy)return; state.files=[]; $('fileInput').value=''; renderFiles(); hidePreview(); clearPageSelection(); setStatus('已清空文件列表。'); });
   $('clearSelectionBtn').addEventListener('click',()=>clearPageSelection(true));
   $('fileList').addEventListener('click',e=>{ const b=e.target.closest('button[data-action]'); if(!b||state.busy)return; const i=Number(b.dataset.index); if(b.dataset.action==='up')moveFile(i,-1); if(b.dataset.action==='down')moveFile(i,1); if(b.dataset.action==='remove')removeFile(i); });
