@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Any
 
-from app.utils.files import JOB_TTL_SECONDS, MAX_CONCURRENT_JOBS, remove_tree
+from app.utils.files import JOB_TTL_SECONDS, MAX_CONCURRENT_JOBS, TEMP_ROOT, remove_tree
 
 
 @dataclass
@@ -154,12 +154,42 @@ def cleanup_job(job_id: str) -> None:
         remove_tree(job.task_dir)
 
 
+def cleanup_orphaned_task_dirs() -> None:
+    """Clean stale disk files, including files left by a previous process."""
+    now = time.time()
+    with _lock:
+        active_paths = {job.task_dir.resolve() for job in _jobs.values()
+                        if job.status in {"queued", "running"}}
+    if not TEMP_ROOT.exists():
+        return
+    for folder in TEMP_ROOT.iterdir():
+        if not folder.is_dir() or folder.resolve() in active_paths:
+            continue
+        try:
+            if now - folder.stat().st_mtime > JOB_TTL_SECONDS:
+                remove_tree(folder)
+        except OSError:
+            continue
+
+
+def _periodic_cleanup() -> None:
+    while True:
+        time.sleep(min(300, max(60, JOB_TTL_SECONDS // 2)))
+        cleanup_expired_jobs()
+        cleanup_orphaned_task_dirs()
+
+
+def start_cleanup_thread() -> None:
+    thread = threading.Thread(target=_periodic_cleanup, daemon=True, name="pdf-cleanup")
+    thread.start()
+
+
 def cleanup_expired_jobs() -> None:
     now = time.time()
     expired: list[str] = []
     with _lock:
         for job_id, job in _jobs.items():
-            if now - job.updated_at > JOB_TTL_SECONDS:
+            if job.status not in {"queued", "running"} and now - job.updated_at > JOB_TTL_SECONDS:
                 expired.append(job_id)
     for job_id in expired:
         cleanup_job(job_id)
