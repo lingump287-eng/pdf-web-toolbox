@@ -87,6 +87,7 @@ function switchTool(id) {
   if (state.busy) return;
   const next = tools.find(t => t.id === id) || tools[0];
   state.activeId = next.id;
+  window.resultUI?.clear();
   state.files = state.files.filter(f => fileCompatibleWithTool(f, next));
   if (window.resetWorkflowScan) window.resetWorkflowScan();
   if (!next.multiple && state.files.length > 1) state.files = state.files.slice(0, 1);
@@ -189,6 +190,7 @@ function setFiles(fileList) {
     validateFiles(candidate);
 
     state.files = candidate;
+    window.resultUI?.clear();
     if (window.resetWorkflowScan) window.resetWorkflowScan();
     renderFiles();
     $('resultCard').classList.add('hidden');
@@ -218,10 +220,11 @@ function moveFile(index, direction) {
   const target = index + direction; if (target < 0 || target >= state.files.length) return;
   [state.files[index], state.files[target]] = [state.files[target], state.files[index]];
   if (window.resetWorkflowScan) window.resetWorkflowScan();
+  window.resultUI?.clear();
   renderFiles();
 }
 function removeFile(index) {
-  state.files.splice(index,1); if (window.resetWorkflowScan) window.resetWorkflowScan();
+  state.files.splice(index,1); window.resultUI?.clear(); if (window.resetWorkflowScan) window.resetWorkflowScan();
   renderFiles(); clearPageSelection(false);
   if (state.files.length === 1 && isPdf(state.files[0])) loadPreview(state.files[0]); else hidePreview();
 }
@@ -492,7 +495,7 @@ function bindEvents() {
   $('dropZone').addEventListener('keydown',e=>{ if(!state.busy && (e.key==='Enter'||e.key===' ')) $('fileInput').click(); });
   $('fileInput').addEventListener('change',e=>setFiles(e.target.files));
   $('addMoreBtn').addEventListener('click',()=>{ if(!state.busy) $('fileInput').click(); });
-  $('clearFilesBtn').addEventListener('click',()=>{ if(state.busy)return; state.files=[]; if (window.resetWorkflowScan) window.resetWorkflowScan(); $('fileInput').value=''; renderFiles(); hidePreview(); clearPageSelection(); setStatus('已清空文件列表。'); });
+  $('clearFilesBtn').addEventListener('click',()=>{ if(state.busy)return; state.files=[]; window.resultUI?.clear(); if (window.resetWorkflowScan) window.resetWorkflowScan(); $('fileInput').value=''; renderFiles(); hidePreview(); clearPageSelection(); setStatus('已清空文件列表。'); });
   $('clearSelectionBtn').addEventListener('click',()=>clearPageSelection(true));
   $('fileList').addEventListener('click',e=>{ const b=e.target.closest('button[data-action]'); if(!b||state.busy)return; const i=Number(b.dataset.index); if(b.dataset.action==='up')moveFile(i,-1); if(b.dataset.action==='down')moveFile(i,1); if(b.dataset.action==='remove')removeFile(i); });
   $('runBtn').addEventListener('click',runTool); $('cancelBtn').addEventListener('click',cancelCurrentJob); $('continueBtn').addEventListener('click',continueEditingResult);
