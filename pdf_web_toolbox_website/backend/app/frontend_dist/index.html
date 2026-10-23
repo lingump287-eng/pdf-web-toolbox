@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#d93025" />
   <title>PDF 工具箱｜免费在线 PDF 处理</title>
   <meta name="description" content="免费在线合并、拆分、旋转、转换、加密 PDF。文件仅用于当前处理任务，并在任务结束后自动清理。" />
-  <link rel="stylesheet" href="/static/style.css?v=5.3.0" />
+  <link rel="stylesheet" href="/static/style.css?v=5.4.0" />
 </head>
 <body>
   <header class="topbar">
@@ -212,6 +212,22 @@
             </div>
           </div>
 
+          <section id="recoveryCard" class="recovery-card content-card hidden" aria-live="polite">
+            <h3>任务需要处理</h3>
+            <p id="recoveryMessage">任务未能完成。</p>
+            <p id="recoveryHint">上传的文件仍保留在本浏览器，检查参数后可以重新提交。</p>
+            <div class="workflow-button-row">
+              <button id="recoveryActionBtn" type="button" class="ghost-btn">重新提交文件</button>
+              <button id="recoveryDismissBtn" type="button" class="ghost-btn">关闭提示</button>
+            </div>
+          </section>
+          <section id="resultPreviewCard" class="result-preview-card content-card hidden" aria-label="处理结果预览">
+            <div class="section-title"><div><span class="section-kicker">RESULT</span><h3>处理结果预览</h3></div></div>
+            <p id="resultPreviewSummary" class="workflow-help">正在读取结果信息……</p>
+            <div id="resultPreviewItems" class="result-preview-items"></div>
+            <div id="resultPreviewImages" class="result-preview-images"></div>
+            <p class="workflow-help">预览仅用于快速核对，建议下载并打开原始输出文件进行完整检查。</p>
+          </section>
           <div id="completedCard" class="completed-card hidden">
             <div class="complete-mark">✓</div>
             <div class="complete-copy">
@@ -264,7 +280,8 @@
   </div>
 
   <div id="navBackdrop" class="nav-backdrop hidden"></div>
-  <script src="/static/app.js?v=5.3.0"></script>
-  <script src="/static/workflow_extras.js?v=5.3.0"></script>
+  <script src="/static/app.js?v=5.4.0"></script>
+  <script src="/static/workflow_extras.js?v=5.4.0"></script>
+  <script src="/static/result_extras.js?v=5.4.0"></script>
 </body>
 </html>

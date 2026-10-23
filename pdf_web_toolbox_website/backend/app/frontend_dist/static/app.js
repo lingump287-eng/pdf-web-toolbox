@@ -24,7 +24,8 @@ const state = {
   previewAbort: null,
   selectedPages: new Set(),
   lastDownloadUrl: null,
-  lastFilename: null
+  lastFilename: null,
+  pollTransientErrors: 0
 };
 
 const $ = id => document.getElementById(id);
@@ -86,6 +87,7 @@ function switchTool(id) {
   if (state.busy) return;
   const next = tools.find(t => t.id === id) || tools[0];
   state.activeId = next.id;
+  window.resultUI?.clear();
   state.files = state.files.filter(f => fileCompatibleWithTool(f, next));
   if (window.resetWorkflowScan) window.resetWorkflowScan();
   if (!next.multiple && state.files.length > 1) state.files = state.files.slice(0, 1);
@@ -188,6 +190,7 @@ function setFiles(fileList) {
     validateFiles(candidate);
 
     state.files = candidate;
+    window.resultUI?.clear();
     if (window.resetWorkflowScan) window.resetWorkflowScan();
     renderFiles();
     $('resultCard').classList.add('hidden');
@@ -217,10 +220,11 @@ function moveFile(index, direction) {
   const target = index + direction; if (target < 0 || target >= state.files.length) return;
   [state.files[index], state.files[target]] = [state.files[target], state.files[index]];
   if (window.resetWorkflowScan) window.resetWorkflowScan();
+  window.resultUI?.clear();
   renderFiles();
 }
 function removeFile(index) {
-  state.files.splice(index,1); if (window.resetWorkflowScan) window.resetWorkflowScan();
+  state.files.splice(index,1); window.resultUI?.clear(); if (window.resetWorkflowScan) window.resetWorkflowScan();
   renderFiles(); clearPageSelection(false);
   if (state.files.length === 1 && isPdf(state.files[0])) loadPreview(state.files[0]); else hidePreview();
 }
@@ -370,6 +374,7 @@ async function pollJob(jobId) {
     const res=await fetch(`/api/jobs/${jobId}`,{cache:'no-store'});
     if (!res.ok) throw new Error(await parseError(res));
     const data=await res.json();
+    state.pollTransientErrors = 0;
     updateProgress(Math.max(20,data.progress||0),data.message||'处理中');
     if (data.status==='done') {
       if (data.result) {
@@ -381,13 +386,29 @@ async function pollJob(jobId) {
         $('continueBtn').classList.toggle('hidden', !state.lastFilename.toLowerCase().endsWith('.pdf'));
         $('completedCard').classList.remove('hidden');
         setStatus('处理完成，结果已准备好。');
+        window.resultUI?.showPreview(jobId);
       }
       updateProgress(100,'处理完成'); setTimeout(()=>resetJobUi(),500); return;
     }
-    if (data.status==='failed') throw new Error(data.error || data.message || '处理失败');
+    if (data.status==='failed') {
+      const message = data.error || data.message || '处理失败';
+      setStatus(message,true); resetJobUi();
+      window.resultUI?.showRecovery(message, 'resubmit');
+      return;
+    }
     if (data.status==='cancelled') { setStatus('任务已取消。'); resetJobUi(); return; }
     state.pollTimer=setTimeout(()=>pollJob(jobId),650);
-  } catch(err) { setStatus(err.message||String(err),true); resetJobUi(); }
+  } catch(err) {
+    state.pollTransientErrors += 1;
+    if (state.pollTransientErrors <= 3) {
+      setStatus('网络不稳定，正在重试查询任务状态（'+state.pollTransientErrors+'/3）……',true);
+      state.pollTimer=setTimeout(()=>pollJob(jobId),1500*state.pollTransientErrors);
+      return;
+    }
+    const message='无法确认任务状态：'+(err.message || String(err));
+    setStatus(message,true); resetJobUi();
+    window.resultUI?.showRecovery(message, 'recheck', jobId);
+  }
 }
 
 function actionLabel() {
@@ -411,13 +432,19 @@ function actionLabel() {
 
 async function runTool() {
   try { validateBeforeRun(); } catch(err) { setStatus(err.message,true); return; }
+  window.resultUI?.clear();
+  state.pollTransientErrors=0;
   state.busy=true; $('runBtn').disabled=true; $('runBtn').textContent='提交中...'; $('cancelBtn').classList.remove('hidden');
   $('completedCard').classList.add('hidden'); $('resultCard').classList.add('hidden'); updateProgress(1,'准备上传');
   try {
     const data=await submitWithUploadProgress(currentTool().endpoint,buildFormData());
     if (!data.job_id) throw new Error('服务器未返回任务编号。');
     state.jobId=data.job_id; $('runBtn').textContent='处理中...'; updateProgress(20,'文件已上传，等待处理'); pollJob(state.jobId);
-  } catch(err) { setStatus(err.message||String(err),true); resetJobUi(); }
+  } catch(err) {
+    const message=err.message||String(err);
+    setStatus(message,true); resetJobUi();
+    window.resultUI?.showRecovery(message, 'resubmit');
+  }
 }
 
 async function cancelCurrentJob() {
@@ -434,7 +461,7 @@ async function continueEditingResult() {
     if (!res.ok) throw new Error(await parseError(res));
     const blob=await res.blob();
     const file=new File([blob],state.lastFilename,{type:'application/pdf'});
-    state.files=[file]; if (window.resetWorkflowScan) window.resetWorkflowScan(); renderFiles(); $('completedCard').classList.add('hidden'); clearPageSelection(false); await loadPreview(file);
+    state.files=[file]; if (window.resetWorkflowScan) window.resetWorkflowScan(); window.resultUI?.clear(); renderFiles(); $('completedCard').classList.add('hidden'); clearPageSelection(false); await loadPreview(file);
     setStatus('结果已加入工作区。现在可直接选择另一个 PDF 工具继续处理。');
     state.lastDownloadUrl=null; state.lastFilename=null;
   } catch(err) { setStatus(err.message||String(err),true); }
@@ -468,7 +495,7 @@ function bindEvents() {
   $('dropZone').addEventListener('keydown',e=>{ if(!state.busy && (e.key==='Enter'||e.key===' ')) $('fileInput').click(); });
   $('fileInput').addEventListener('change',e=>setFiles(e.target.files));
   $('addMoreBtn').addEventListener('click',()=>{ if(!state.busy) $('fileInput').click(); });
-  $('clearFilesBtn').addEventListener('click',()=>{ if(state.busy)return; state.files=[]; if (window.resetWorkflowScan) window.resetWorkflowScan(); $('fileInput').value=''; renderFiles(); hidePreview(); clearPageSelection(); setStatus('已清空文件列表。'); });
+  $('clearFilesBtn').addEventListener('click',()=>{ if(state.busy)return; state.files=[]; window.resultUI?.clear(); if (window.resetWorkflowScan) window.resetWorkflowScan(); $('fileInput').value=''; renderFiles(); hidePreview(); clearPageSelection(); setStatus('已清空文件列表。'); });
   $('clearSelectionBtn').addEventListener('click',()=>clearPageSelection(true));
   $('fileList').addEventListener('click',e=>{ const b=e.target.closest('button[data-action]'); if(!b||state.busy)return; const i=Number(b.dataset.index); if(b.dataset.action==='up')moveFile(i,-1); if(b.dataset.action==='down')moveFile(i,1); if(b.dataset.action==='remove')removeFile(i); });
   $('runBtn').addEventListener('click',runTool); $('cancelBtn').addEventListener('click',cancelCurrentJob); $('continueBtn').addEventListener('click',continueEditingResult);
