@@ -19,7 +19,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Validate Render Blueprint
         run: |
-          ruby -e 'require "yaml"; config = YAML.load_file("render.yaml"); service = config.fetch("services").find { |item| item["name"] == "pdf-web-toolbox" }; abort "Invalid Render service configuration" unless service && service["runtime"] == "python" && service["rootDir"] == "pdf_web_toolbox_website/backend" && service["healthCheckPath"] == "/api/health"; puts "Render Blueprint configuration passed"'
+          ruby -e 'require "yaml"; config = YAML.load_file("../../render.yaml"); service = config.fetch("services").find { |item| item["name"] == "pdf-web-toolbox" }; abort "Invalid Render service configuration" unless service && service["runtime"] == "python" && service["rootDir"] == "pdf_web_toolbox_website/backend" && service["healthCheckPath"] == "/api/health"; puts "Render Blueprint configuration passed"'
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
