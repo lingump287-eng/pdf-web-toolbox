@@ -1,7 +1,21 @@
+# Kept in sync for users who select this nested Blueprint path in Render.
+# The repository-root render.yaml is the default entry point.
 services:
   - type: web
     name: pdf-web-toolbox
-    runtime: docker
+    runtime: python
     plan: free
+    rootDir: pdf_web_toolbox_website/backend
+    buildCommand: pip install --upgrade pip && pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /api/health
     autoDeploy: true
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.8
+      - key: PYTHONUNBUFFERED
+        value: "1"
+      - key: PDF_TOOLBOX_TEMP_ROOT
+        value: /tmp/pdf-web-toolbox
+      - key: PDF_TOOLBOX_MAX_FILE_MB
+        value: "100"
