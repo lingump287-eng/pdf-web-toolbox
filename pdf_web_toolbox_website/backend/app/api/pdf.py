@@ -7,10 +7,11 @@ from typing import Literal
 
 import fitz
 from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from starlette.concurrency import run_in_threadpool
 
 from app.services.workflow import WorkflowOptions, run_workflow
+from app.services.result_preview import result_summary, result_preview_jpeg
 from app.services.blank_scan import scan_blank_pages
 from app.services.jobs import (
     cancel_job,
@@ -475,3 +476,38 @@ async def workflow_blank_scan_endpoint(files: list[UploadFile] = File(...)):
         raise HTTPException(status_code=500, detail="扫描失败，请检查文件后重试") from exc
     finally:
         remove_tree(task_dir)
+
+
+def _completed_result(job_id: str) -> tuple[Path, str]:
+    job = get_job(job_id)
+    if not job or job.status != "done" or not job.result_path:
+        raise HTTPException(status_code=404, detail="结果不存在、尚未完成或已过期")
+    result = job.result_path.resolve()
+    # Never use an arbitrary path from a stale/corrupted job record.
+    if not result.is_relative_to((job.task_dir / "output").resolve()) or not result.is_file():
+        raise HTTPException(status_code=404, detail="结果文件不可访问")
+    return result, job.result_name or result.name
+
+
+@job_router.get("/{job_id}/result-summary")
+async def job_result_summary(job_id: str):
+    result, name = _completed_result(job_id)
+    try:
+        data = await run_in_threadpool(result_summary, result, name)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return JSONResponse(data, headers={"Cache-Control": "private, no-store"})
+
+
+@job_router.get("/{job_id}/result-preview")
+async def job_result_preview(job_id: str, page: int = 1, file_index: int = 0):
+    result, _name = _completed_result(job_id)
+    try:
+        data = await run_in_threadpool(result_preview_jpeg, result, page=page, file_index=file_index)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return Response(
+        content=data,
+        media_type="image/jpeg",
+        headers={"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"},
+    )
