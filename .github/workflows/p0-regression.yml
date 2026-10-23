@@ -22,12 +22,14 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt pytest httpx
       - name: Run P0 and PDF workflow regression suite
-        run: python -m pytest -q tests/test_p0.py tests/test_pdf_regression.py tests/test_workflow_blank_templates.py
+        run: python -m pytest -q tests/test_p0.py tests/test_pdf_regression.py tests/test_workflow_blank_templates.py tests/test_result_preview.py
       - name: Check frontend JavaScript syntax
         run: |
           node --check app/frontend_dist/static/app.js
           node --check app/frontend_dist/static/workflow_extras.js
+          node --check app/frontend_dist/static/result_extras.js
       - name: Verify multi-selection append behavior
         run: |
           node tests/test_upload_selection.cjs
           node tests/test_workflow_extras.cjs
+          node tests/test_result_ui.cjs
