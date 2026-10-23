@@ -24,7 +24,8 @@ const state = {
   previewAbort: null,
   selectedPages: new Set(),
   lastDownloadUrl: null,
-  lastFilename: null
+  lastFilename: null,
+  pollTransientErrors: 0
 };
 
 const $ = id => document.getElementById(id);
@@ -370,6 +371,7 @@ async function pollJob(jobId) {
     const res=await fetch(`/api/jobs/${jobId}`,{cache:'no-store'});
     if (!res.ok) throw new Error(await parseError(res));
     const data=await res.json();
+    state.pollTransientErrors = 0;
     updateProgress(Math.max(20,data.progress||0),data.message||'处理中');
     if (data.status==='done') {
       if (data.result) {
@@ -381,13 +383,29 @@ async function pollJob(jobId) {
         $('continueBtn').classList.toggle('hidden', !state.lastFilename.toLowerCase().endsWith('.pdf'));
         $('completedCard').classList.remove('hidden');
         setStatus('处理完成，结果已准备好。');
+        window.resultUI?.showPreview(jobId);
       }
       updateProgress(100,'处理完成'); setTimeout(()=>resetJobUi(),500); return;
     }
-    if (data.status==='failed') throw new Error(data.error || data.message || '处理失败');
+    if (data.status==='failed') {
+      const message = data.error || data.message || '处理失败';
+      setStatus(message,true); resetJobUi();
+      window.resultUI?.showRecovery(message, 'resubmit');
+      return;
+    }
     if (data.status==='cancelled') { setStatus('任务已取消。'); resetJobUi(); return; }
     state.pollTimer=setTimeout(()=>pollJob(jobId),650);
-  } catch(err) { setStatus(err.message||String(err),true); resetJobUi(); }
+  } catch(err) {
+    state.pollTransientErrors += 1;
+    if (state.pollTransientErrors <= 3) {
+      setStatus('网络不稳定，正在重试查询任务状态（'+state.pollTransientErrors+'/3）……',true);
+      state.pollTimer=setTimeout(()=>pollJob(jobId),1500*state.pollTransientErrors);
+      return;
+    }
+    const message='无法确认任务状态：'+(err.message || String(err));
+    setStatus(message,true); resetJobUi();
+    window.resultUI?.showRecovery(message, 'recheck', jobId);
+  }
 }
 
 function actionLabel() {
@@ -411,13 +429,19 @@ function actionLabel() {
 
 async function runTool() {
   try { validateBeforeRun(); } catch(err) { setStatus(err.message,true); return; }
+  window.resultUI?.clear();
+  state.pollTransientErrors=0;
   state.busy=true; $('runBtn').disabled=true; $('runBtn').textContent='提交中...'; $('cancelBtn').classList.remove('hidden');
   $('completedCard').classList.add('hidden'); $('resultCard').classList.add('hidden'); updateProgress(1,'准备上传');
   try {
     const data=await submitWithUploadProgress(currentTool().endpoint,buildFormData());
     if (!data.job_id) throw new Error('服务器未返回任务编号。');
     state.jobId=data.job_id; $('runBtn').textContent='处理中...'; updateProgress(20,'文件已上传，等待处理'); pollJob(state.jobId);
-  } catch(err) { setStatus(err.message||String(err),true); resetJobUi(); }
+  } catch(err) {
+    const message=err.message||String(err);
+    setStatus(message,true); resetJobUi();
+    window.resultUI?.showRecovery(message, 'resubmit');
+  }
 }
 
 async function cancelCurrentJob() {
@@ -434,7 +458,7 @@ async function continueEditingResult() {
     if (!res.ok) throw new Error(await parseError(res));
     const blob=await res.blob();
     const file=new File([blob],state.lastFilename,{type:'application/pdf'});
-    state.files=[file]; if (window.resetWorkflowScan) window.resetWorkflowScan(); renderFiles(); $('completedCard').classList.add('hidden'); clearPageSelection(false); await loadPreview(file);
+    state.files=[file]; if (window.resetWorkflowScan) window.resetWorkflowScan(); window.resultUI?.clear(); renderFiles(); $('completedCard').classList.add('hidden'); clearPageSelection(false); await loadPreview(file);
     setStatus('结果已加入工作区。现在可直接选择另一个 PDF 工具继续处理。');
     state.lastDownloadUrl=null; state.lastFilename=null;
   } catch(err) { setStatus(err.message||String(err),true); }
