@@ -365,15 +365,18 @@ def cleanup_orphaned_task_dirs(temp_root: Path | None = None) -> None:
                         continue
                     if not acquire_task_lock(root, folder.name, blocking=False):
                         continue
+                    removed = False
                     try:
                         remove_tree(folder)
-                        lock_path = root / ".locks" / f"{folder.name}.lock"
-                        try:
-                            lock_path.unlink(missing_ok=True)
-                        except OSError:
-                            pass
+                        removed = not folder.exists()
                     finally:
                         release_task_lock(root, folder.name)
+                        if removed:
+                            lock_path = root / ".locks" / f"{folder.name}.lock"
+                            try:
+                                lock_path.unlink(missing_ok=True)
+                            except OSError:
+                                pass
                 except OSError:
                     continue
 
