@@ -159,6 +159,29 @@ def test_duplicate_submission_cannot_release_the_active_worker_lock(tmp_path, ex
 
 
 @pytest.mark.parametrize("raises", [False, True])
+def test_request_cleanup_cannot_remove_a_submitted_worker_directory(tmp_path, executor):
+    task = tmp_path / "submitted-worker"
+    job = jobs.create_job(task)
+    started, release = threading.Event(), threading.Event()
+
+    def work(progress, cancelled):
+        started.set()
+        assert release.wait(5)
+        return task / "output.pdf", "output.pdf", "application/pdf"
+
+    try:
+        jobs.submit_job(job.id, work)
+        assert started.wait(5)
+        assert not files.discard_task_dir(task)
+        assert task.exists() and job.worker_active
+    finally:
+        release.set()
+    executor[0].result(timeout=5)
+    assert job.status == "done" and not job.worker_active
+    jobs.cleanup_job(job.id)
+    assert not task.exists()
+
+
 def test_failed_deletion_is_retried(tmp_path, monkeypatch, raises):
     task = tmp_path / "job"
     task.mkdir()
@@ -257,6 +280,7 @@ def test_job_state_is_visible_between_processes(tmp_path):
 def test_cleanup_in_another_process_cannot_delete_a_live_task(tmp_path):
     task = tmp_path / "live-worker"
     job = jobs.create_job(task)
+    assert task_store.reserve_worker_record(tmp_path, job.id, time.time())
     task_store.release_task_lock(tmp_path, job.id)
     context = multiprocessing.get_context("spawn")
     ready, release = context.Event(), context.Event()
@@ -294,6 +318,7 @@ def test_cleanup_in_another_process_cannot_delete_a_live_task(tmp_path):
 def test_abrupt_worker_process_exit_releases_lock_and_is_recovered(tmp_path):
     task = tmp_path / "crashed-worker"
     job = jobs.create_job(task)
+    assert task_store.reserve_worker_record(tmp_path, job.id, time.time())
     task_store.release_task_lock(tmp_path, job.id)
     context = multiprocessing.get_context("spawn")
     ready, release = context.Event(), context.Event()
