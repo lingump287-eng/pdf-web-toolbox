@@ -21,6 +21,9 @@ from app.utils.task_store import (
     update_job_record,
     cancel_job_record,
     delete_job_record,
+    update_job_record_if_not_cancelled,
+    start_job_record,
+    finish_worker_record,
 )
 
 
@@ -150,7 +153,7 @@ def update_job(job_id: str, *, progress: int | None = None, message: str | None 
         updates["progress"] = max(0, min(100, int(progress)))
     if message is not None:
         updates["message"] = message
-    if update_job_record(root, job_id, updates):
+    if update_job_record_if_not_cancelled(root, job_id, updates):
         _update_cache(job_id, **updates)
 
 
@@ -182,18 +185,9 @@ def submit_job(
             update_job(job_id, progress=value, message=message)
 
         try:
-            record = get_job_record(root, job_id)
-            if not record:
-                return
-            if record.get("cancelled"):
-                return
             now = time.time()
-            update_job_record(root, job_id, {
-                "status": "running",
-                "progress": 5,
-                "message": "开始处理",
-                "updated_at": now,
-            })
+            if not start_job_record(root, job_id, now):
+                return
             _update_cache(job_id, status="running", progress=5, message="开始处理", updated_at=now)
 
             result = worker(progress, lambda: is_cancelled(job_id))
@@ -226,23 +220,28 @@ def submit_job(
                     "json_result": None,
                     "updated_at": time.time(),
                 }
-            update_job_record(root, job_id, updates)
-            _update_cache(job_id, **updates)
+            if update_job_record_if_not_cancelled(root, job_id, updates):
+                _update_cache(job_id, **updates)
+            else:
+                latest = get_job_record(root, job_id)
+                if latest:
+                    _job_from_record(root, latest)
         except BaseException as exc:
             record = get_job_record(root, job_id)
-            if record:
-                if record.get("cancelled"):
-                    updates = {"status": "cancelled", "message": "任务已取消", "updated_at": time.time()}
+            if record and not record.get("cancelled"):
+                error = str(exc) if isinstance(exc, ValueError) else "服务器处理失败，请确认文件有效后重试。"
+                updates = {
+                    "status": "failed",
+                    "error": error,
+                    "message": error,
+                    "updated_at": time.time(),
+                }
+                if update_job_record_if_not_cancelled(root, job_id, updates):
+                    _update_cache(job_id, **updates)
                 else:
-                    error = str(exc) if isinstance(exc, ValueError) else "服务器处理失败，请确认文件有效后重试。"
-                    updates = {
-                        "status": "failed",
-                        "error": error,
-                        "message": error,
-                        "updated_at": time.time(),
-                    }
-                update_job_record(root, job_id, updates)
-                _update_cache(job_id, **updates)
+                    latest = get_job_record(root, job_id)
+                    if latest:
+                        _job_from_record(root, latest)
             if isinstance(exc, Exception) and not isinstance(exc, ValueError):
                 logging.getLogger(__name__).exception(
                     "Background PDF job failed",
@@ -251,17 +250,10 @@ def submit_job(
             if not isinstance(exc, Exception):
                 raise
         finally:
-            record = get_job_record(root, job_id)
-            if record:
-                updates = {"worker_active": 0, "updated_at": time.time()}
-                if record["status"] in {"queued", "running"}:
-                    updates.update({
-                        "status": "failed",
-                        "error": "服务器处理失败，请确认文件有效后重试。",
-                        "message": "服务器处理失败，请确认文件有效后重试。",
-                    })
-                update_job_record(root, job_id, updates)
-                _update_cache(job_id, **updates)
+            finish_worker_record(root, job_id, time.time())
+            latest = get_job_record(root, job_id)
+            if latest:
+                _job_from_record(root, latest)
             # The OS releases this lock automatically if the worker process crashes.
             release_task_lock(root, job_id)
 
