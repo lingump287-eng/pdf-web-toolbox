@@ -158,7 +158,6 @@ def test_duplicate_submission_cannot_release_the_active_worker_lock(tmp_path, ex
     assert not task.exists()
 
 
-@pytest.mark.parametrize("raises", [False, True])
 def test_request_cleanup_cannot_remove_a_submitted_worker_directory(tmp_path, executor):
     task = tmp_path / "submitted-worker"
     job = jobs.create_job(task)
@@ -182,6 +181,7 @@ def test_request_cleanup_cannot_remove_a_submitted_worker_directory(tmp_path, ex
     assert not task.exists()
 
 
+@pytest.mark.parametrize("raises", [False, True])
 def test_failed_deletion_is_retried(tmp_path, monkeypatch, raises):
     task = tmp_path / "job"
     task.mkdir()
