@@ -15,13 +15,24 @@ from app.services import jobs
 from app.utils import files, task_store
 
 
-def _child_update_job(root_text: str, job_id: str, ready) -> None:
+def _child_update_job(root_text: str, job_id: str, ready, result_connection) -> None:
     root = Path(root_text)
     task_store.update_job_record(root, job_id, {
         "progress": 73,
         "message": "updated by another process",
         "updated_at": time.time(),
     })
+    jobs.TEMP_ROOT = root
+    refreshed = jobs.get_job(job_id)
+    result_connection.send((refreshed.progress, refreshed.message) if refreshed else None)
+    result_connection.close()
+    ready.set()
+
+
+def _child_cancel_job(root_text: str, job_id: str, ready, result_connection) -> None:
+    jobs.TEMP_ROOT = Path(root_text)
+    result_connection.send(jobs.cancel_job(job_id))
+    result_connection.close()
     ready.set()
 
 
@@ -258,12 +269,18 @@ def test_job_state_is_visible_between_processes(tmp_path):
     job = jobs.create_job(task)
     context = multiprocessing.get_context("spawn")
     ready = context.Event()
-    process = context.Process(target=_child_update_job, args=(str(tmp_path), job.id, ready))
+    parent_connection, child_connection = context.Pipe(duplex=False)
+    process = context.Process(
+        target=_child_update_job,
+        args=(str(tmp_path), job.id, ready, child_connection),
+    )
     try:
         process.start()
         assert ready.wait(10)
         process.join(10)
         assert process.exitcode == 0
+        assert parent_connection.poll(5)
+        assert parent_connection.recv() == (73, "updated by another process")
         refreshed = jobs.get_job(job.id)
         assert refreshed is not None
         assert refreshed.progress == 73
@@ -273,6 +290,34 @@ def test_job_state_is_visible_between_processes(tmp_path):
             process.terminate()
             process.join(5)
         task_store.update_job_record(tmp_path, job.id, {"worker_active": 0, "status": "failed"})
+        task_store.release_task_lock(tmp_path, job.id)
+        jobs.cleanup_job(job.id)
+
+
+def test_cancellation_from_another_process_is_visible_to_worker(tmp_path):
+    task = tmp_path / "cross-process-cancel"
+    job = jobs.create_job(task)
+    assert task_store.reserve_worker_record(tmp_path, job.id, time.time())
+    context = multiprocessing.get_context("spawn")
+    ready = context.Event()
+    parent_connection, child_connection = context.Pipe(duplex=False)
+    process = context.Process(
+        target=_child_cancel_job,
+        args=(str(tmp_path), job.id, ready, child_connection),
+    )
+    try:
+        process.start()
+        assert ready.wait(10)
+        process.join(10)
+        assert process.exitcode == 0
+        assert parent_connection.poll(5) and parent_connection.recv() is True
+        assert jobs.is_cancelled(job.id)
+        assert job.status == "cancelled"
+    finally:
+        if process.is_alive():
+            process.terminate()
+            process.join(5)
+        task_store.update_job_record(tmp_path, job.id, {"worker_active": 0})
         task_store.release_task_lock(tmp_path, job.id)
         jobs.cleanup_job(job.id)
 
