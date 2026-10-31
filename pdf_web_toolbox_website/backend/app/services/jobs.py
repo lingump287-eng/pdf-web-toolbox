@@ -19,7 +19,7 @@ from app.utils.task_store import (
     list_job_records,
     release_task_lock,
     registry_lock,
-    save_job_record,
+    activate_job_record,
     update_job_record,
     cancel_job_record,
     delete_job_record,
@@ -117,31 +117,19 @@ def create_job(task_dir: Path) -> Job:
     ensure_task_reserved(root, task_dir)
     job_id = task_dir.name
     now = time.time()
-    existing = get_job_record(root, job_id) or {}
-    record = {
-        "job_id": job_id,
-        "task_dir": str(task_dir),
-        "status": "queued",
-        "progress": 0,
-        "message": "等待处理",
-        "result_path": None,
-        "result_name": None,
-        "media_type": "application/octet-stream",
-        "error": None,
-        "cancelled": 0,
-        "worker_active": 0,
-        "created_at": existing.get("created_at", now),
-        "updated_at": now,
-        "json_result": None,
-    }
-    save_job_record(root, record)
+    if not activate_job_record(root, job_id, now):
+        raise RuntimeError(f"Task directory is already registered or no longer uploading: {task_dir}")
+    record = get_job_record(root, job_id)
+    if not record:
+        raise RuntimeError(f"Could not load registered task: {task_dir}")
     with _lock:
         _job_roots[job_id] = root
     return _job_from_record(root, record)
 
 
 def get_job(job_id: str) -> Job | None:
-    cleanup_expired_jobs()
+    # Status polling must stay O(1) in the registry. Expiry is handled by the
+    # periodic maintenance thread and once when a new job is created.
     root = _root_for(job_id)
     record = get_job_record(root, job_id)
     if not record or record["status"] == "uploading":
