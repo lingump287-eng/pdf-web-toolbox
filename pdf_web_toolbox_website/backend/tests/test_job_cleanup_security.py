@@ -501,6 +501,17 @@ def test_abrupt_worker_process_exit_releases_lock_and_is_recovered(tmp_path):
     assert not task.exists()
 
 
+def test_other_thread_cannot_release_an_upload_reservation(tmp_path, monkeypatch):
+    monkeypatch.setattr(files, "TEMP_ROOT", tmp_path)
+    task = files.new_task_dir()
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        discarded = pool.submit(files.discard_task_dir, task).result(timeout=5)
+    assert not discarded
+    assert task.exists()
+    assert files.discard_task_dir(task)
+    assert not task.exists()
+
+
 def test_upload_reservation_is_registered_before_files_are_written(tmp_path, monkeypatch):
     monkeypatch.setattr(files, "TEMP_ROOT", tmp_path)
     task = files.new_task_dir()
