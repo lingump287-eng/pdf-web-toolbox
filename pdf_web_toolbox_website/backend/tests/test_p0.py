@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 os.environ.setdefault("PDF_TOOLBOX_TEMP_ROOT", tempfile.mkdtemp(prefix="pdf-toolbox-tests-"))
 from app.main import app
 from app.services import jobs
+from app.utils import task_store
 
 
 def test_config_is_valid_and_has_frontend_version():
@@ -49,4 +50,6 @@ def test_cleanup_removes_stale_orphan_but_not_active_job(tmp_path, monkeypatch):
         assert not stale.exists()
         assert active.exists()
     finally:
+        task_store.update_job_record(tmp_path, job.id, {"worker_active": 0, "status": "failed"})
+        task_store.release_task_lock(tmp_path, job.id)
         jobs.cleanup_job(job.id)

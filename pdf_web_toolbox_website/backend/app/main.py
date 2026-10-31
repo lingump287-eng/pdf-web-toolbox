@@ -13,7 +13,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.api.pdf import job_router, router as pdf_router
-from app.services.jobs import start_cleanup_thread, cleanup_orphaned_task_dirs
+from app.services.jobs import start_cleanup_thread, cleanup_orphaned_task_dirs, cleanup_expired_jobs
 from app.utils.files import (
     MAX_DPI,
     MAX_FILE_MB,
@@ -65,6 +65,8 @@ app.include_router(job_router)
 
 @app.on_event("startup")
 def start_maintenance() -> None:
+    # Recover stale reservations/workers before scanning unregistered directories.
+    cleanup_expired_jobs()
     cleanup_orphaned_task_dirs()
     start_cleanup_thread()
 

@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 
 from app.main import app
 from app.services import jobs
+from app.utils import task_store
 from app.services.result_preview import result_preview_jpeg
 
 
@@ -99,6 +100,8 @@ def test_results_unavailable_when_not_complete_or_unknown(tmp_path):
                 assert client.get(f"/api/jobs/{queued.id}/{endpoint}").status_code == 404
                 assert client.get(f"/api/jobs/{'0'*32}/{endpoint}").status_code == 404
     finally:
+        task_store.update_job_record(tmp_path, queued.id, {"worker_active": 0, "status": "failed"})
+        task_store.release_task_lock(tmp_path, queued.id)
         jobs.cleanup_job(queued.id)
 
 
@@ -106,8 +109,13 @@ def test_output_path_cannot_escape_job_directory(tmp_path):
     job = jobs.create_job(tmp_path / "inside")
     outside = tmp_path / "private.pdf"
     outside.write_bytes(make_pdf("SECRET"))
-    job.status = "done"
-    job.result_path = outside
+    task_store.update_job_record(tmp_path, job.id, {
+        "status": "done",
+        "worker_active": 0,
+        "result_path": str(outside),
+        "result_name": "private.pdf",
+    })
+    task_store.release_task_lock(tmp_path, job.id)
     try:
         with TestClient(app) as client:
             assert client.get(f"/api/jobs/{job.id}/result-summary").status_code == 404

@@ -1,0 +1,32 @@
+name: Multi-process task safety
+on:
+  pull_request:
+    paths:
+      - "pdf_web_toolbox_website/backend/app/services/jobs.py"
+      - "pdf_web_toolbox_website/backend/app/utils/task_store.py"
+      - "pdf_web_toolbox_website/backend/app/utils/files.py"
+      - "pdf_web_toolbox_website/backend/app/api/pdf.py"
+      - "pdf_web_toolbox_website/backend/tests/test_job_cleanup_security.py"
+      - ".github/workflows/multiprocess-safety.yml"
+  workflow_dispatch:
+jobs:
+  task-store:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: pdf_web_toolbox_website/backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install backend dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pytest httpx
+      - name: Run cross-process job lifecycle regressions
+        run: python -m pytest -q tests/test_job_cleanup_security.py

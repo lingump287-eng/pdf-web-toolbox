@@ -36,13 +36,21 @@ from app.services.pdf_ops import (
     rotate_pdf,
     split_each_page,
 )
+from app.utils.task_store import (
+    acquire_task_lock,
+    allow_cross_thread_lock_release,
+    get_job_record,
+    release_task_lock,
+    registry_lock,
+)
+
 from app.utils.files import (
     MAX_DPI,
     MAX_FILES_PER_REQUEST,
     MAX_PREVIEW_PAGES,
     MAX_TOTAL_PAGES,
     new_task_dir,
-    remove_tree,
+    discard_task_dir,
     save_upload,
     validate_total_size,
     zip_folder,
@@ -56,7 +64,7 @@ IMAGE_ALLOWED = IMAGE_EXTS
 
 
 def handle_upload_error(task_dir: Path, error: Exception) -> None:
-    remove_tree(task_dir)
+    discard_task_dir(task_dir)
     if isinstance(error, ValueError):
         raise HTTPException(status_code=400, detail=str(error))
     logger.exception("PDF upload failed", exc_info=error)
@@ -379,7 +387,7 @@ async def preview_endpoint(file: UploadFile = File(...)):
             raise HTTPException(status_code=400, detail=str(e))
         handle_upload_error(task_dir, e)
     finally:
-        remove_tree(task_dir)
+        discard_task_dir(task_dir)
 
 
 def _simple_pdf_job(progress, cancelled, action, output: Path, name: str):
@@ -413,15 +421,18 @@ def job_cancel(job_id: str):
 
 @job_router.get("/{job_id}/download")
 def job_download(job_id: str):
-    result, name = _completed_result(job_id)
-    job = get_job(job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail="结果不存在、尚未完成或已过期")
-    return FileResponse(
-        str(result),
-        media_type=job.media_type,
-        filename=name,
-    )
+    root, job, result, name = _acquire_completed_result(job_id, cross_thread_release=True)
+    try:
+        return _TaskLockedFileResponse(
+            str(result),
+            media_type=job.media_type,
+            filename=name,
+            task_root=root,
+            job_id=job_id,
+        )
+    except BaseException:
+        release_task_lock(root, job_id)
+        raise
 
 
 @router.post("/workflow")
@@ -476,39 +487,97 @@ async def workflow_blank_scan_endpoint(files: list[UploadFile] = File(...)):
         logger.exception("Blank-page scan failed")
         raise HTTPException(status_code=500, detail="扫描失败，请检查文件后重试") from exc
     finally:
-        remove_tree(task_dir)
+        discard_task_dir(task_dir)
 
 
-def _completed_result(job_id: str) -> tuple[Path, str]:
+class _TaskLockedFileResponse(FileResponse):
+    """Keep the job directory locked until the response body has been sent."""
+
+    def __init__(self, *args, task_root: Path, job_id: str, **kwargs):
+        self._task_root = task_root
+        self._job_id = job_id
+        super().__init__(*args, **kwargs)
+
+    async def __call__(self, scope, receive, send):
+        try:
+            await super().__call__(scope, receive, send)
+        finally:
+            release_task_lock(self._task_root, self._job_id)
+
+
+def _acquire_completed_result(
+    job_id: str, *, cross_thread_release: bool = False
+) -> tuple[Path, object, Path, str]:
     job = get_job(job_id)
-    if not job or job.status != "done" or not job.result_path:
+    if not job or job.status != "done":
         raise HTTPException(status_code=404, detail="结果不存在、尚未完成或已过期")
-    result = job.result_path.resolve()
-    # Never use an arbitrary path from a stale/corrupted job record.
-    if not result.is_relative_to((job.task_dir / "output").resolve()) or not result.is_file():
-        raise HTTPException(status_code=404, detail="结果文件不可访问")
-    return result, job.result_name or result.name
+
+    root = job.task_dir.parent.resolve()
+    acquired = False
+    try:
+        # Serialize result readers with cleanup so a TTL sweep cannot remove a
+        # result between validation and download/preview/summary completion.
+        with registry_lock(root):
+            record = get_job_record(root, job_id)
+            if (
+                not record
+                or record["status"] != "done"
+                or record.get("worker_active")
+                or not record.get("result_path")
+            ):
+                raise HTTPException(status_code=404, detail="结果不存在、尚未完成或已过期")
+            if not acquire_task_lock(root, job_id, blocking=False):
+                raise HTTPException(status_code=404, detail="结果暂不可访问，请稍后重试")
+            acquired = True
+
+        task_dir = Path(record["task_dir"]).resolve()
+        if task_dir.parent != root or task_dir.name != job_id:
+            raise HTTPException(status_code=404, detail="结果文件不可访问")
+        result = Path(record["result_path"]).resolve()
+        output_root = (task_dir / "output").resolve()
+        if (
+            not output_root.is_relative_to(task_dir)
+            or not result.is_relative_to(output_root)
+            or not result.is_file()
+        ):
+            raise HTTPException(status_code=404, detail="结果文件不可访问")
+        latest_job = get_job(job_id)
+        if not latest_job or latest_job.status != "done":
+            raise HTTPException(status_code=404, detail="结果不存在、尚未完成或已过期")
+        if cross_thread_release and not allow_cross_thread_lock_release(root, job_id):
+            raise HTTPException(status_code=404, detail="结果暂不可访问，请稍后重试")
+        return root, latest_job, result, record.get("result_name") or result.name
+    except BaseException:
+        if acquired:
+            release_task_lock(root, job_id)
+        raise
 
 
 @job_router.get("/{job_id}/result-summary")
 async def job_result_summary(job_id: str):
-    result, name = _completed_result(job_id)
+    root, _job, result, name = _acquire_completed_result(job_id)
     try:
-        data = await run_in_threadpool(result_summary, result, name)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return JSONResponse(data, headers={"Cache-Control": "private, no-store"})
+        try:
+            data = await run_in_threadpool(result_summary, result, name)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return JSONResponse(data, headers={"Cache-Control": "private, no-store"})
+    finally:
+        release_task_lock(root, job_id)
 
 
 @job_router.get("/{job_id}/result-preview")
 async def job_result_preview(job_id: str, page: int = 1, file_index: int = 0):
-    result, _name = _completed_result(job_id)
+    root, _job, result, _name = _acquire_completed_result(job_id)
     try:
-        data = await run_in_threadpool(result_preview_jpeg, result, page=page, file_index=file_index)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return Response(
-        content=data,
-        media_type="image/jpeg",
-        headers={"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"},
-    )
+        try:
+            data = await run_in_threadpool(result_preview_jpeg, result, page=page, file_index=file_index)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return Response(
+            content=data,
+            media_type="image/jpeg",
+            headers={"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"},
+        )
+    finally:
+        release_task_lock(root, job_id)
