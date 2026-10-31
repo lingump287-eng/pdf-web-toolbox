@@ -26,7 +26,7 @@ else:
 _DB_NAME = ".jobs.sqlite3"
 _LOCKS_DIR = ".locks"
 _REGISTRY_LOCK = ".registry.lock"
-_LOCAL_LOCKS: dict[str, Any] = {}
+_LOCAL_LOCKS: dict[str, tuple[Any, int, bool]] = {}
 _LOCAL_LOCKS_GUARD = threading.RLock()
 _REGISTRY_THREAD_LOCK = threading.RLock()
 _INITIALIZED_ROOTS: set[str] = set()
@@ -172,7 +172,8 @@ def _local_lock_key(root: Path, job_id: str) -> str:
 def has_local_task_lock(root: Path, job_id: str) -> bool:
     key = _local_lock_key(root, job_id)
     with _LOCAL_LOCKS_GUARD:
-        return key in _LOCAL_LOCKS
+        entry = _LOCAL_LOCKS.get(key)
+        return entry is not None and entry[1] == threading.get_ident()
 
 
 def acquire_task_lock(root: Path, job_id: str, *, blocking: bool = False) -> bool:
@@ -185,16 +186,36 @@ def acquire_task_lock(root: Path, job_id: str, *, blocking: bool = False) -> boo
         handle = _acquire_file_lock(_task_lock_path(root, job_id), blocking=blocking)
         if handle is None:
             return False
-        _LOCAL_LOCKS[key] = handle
+        _LOCAL_LOCKS[key] = (handle, threading.get_ident(), False)
         return True
 
 
-def release_task_lock(root: Path, job_id: str) -> None:
+def allow_cross_thread_lock_release(root: Path, job_id: str) -> bool:
+    """Transfer release permission when a worker/response finishes on another thread."""
     key = _local_lock_key(root, job_id)
     with _LOCAL_LOCKS_GUARD:
-        handle = _LOCAL_LOCKS.pop(key, None)
-    if handle is not None:
-        _release_file_lock(handle)
+        entry = _LOCAL_LOCKS.get(key)
+        if entry is None or entry[1] != threading.get_ident():
+            return False
+        handle, owner_thread, _ = entry
+        _LOCAL_LOCKS[key] = (handle, owner_thread, True)
+        return True
+
+
+def release_task_lock(root: Path, job_id: str, *, owner_only: bool = False) -> None:
+    key = _local_lock_key(root, job_id)
+    current_thread = threading.get_ident()
+    with _LOCAL_LOCKS_GUARD:
+        entry = _LOCAL_LOCKS.get(key)
+        if entry is None:
+            return
+        handle, owner_thread, cross_thread_release = entry
+        if owner_only and current_thread != owner_thread:
+            return
+        if current_thread != owner_thread and not cross_thread_release:
+            return
+        _LOCAL_LOCKS.pop(key, None)
+    _release_file_lock(handle)
 
 
 def _delete_record_unlocked(root: Path, job_id: str) -> None:
@@ -284,7 +305,7 @@ def discard_task_dir(root: Path, task_dir: Path) -> bool:
             # A submitted worker owns this directory; request error cleanup must
             # never release its lock or remove its input/output files.
             return False
-        release_task_lock(root, job_id)
+        release_task_lock(root, job_id, owner_only=True)
         if not acquire_task_lock(root, job_id, blocking=False):
             return False
         try:
