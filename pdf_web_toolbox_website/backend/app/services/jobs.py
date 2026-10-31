@@ -306,6 +306,7 @@ def cleanup_job(job_id: str) -> None:
         if not acquire_task_lock(root, job_id, blocking=False):
             # Another process still owns the task directory.
             return
+        lock_file_to_remove: Path | None = None
         try:
             record = get_job_record(root, job_id)
             if not record:
@@ -329,13 +330,14 @@ def cleanup_job(job_id: str) -> None:
                 with _lock:
                     _jobs.pop(job_id, None)
                     _job_roots.pop(job_id, None)
-                lock_path = root / ".locks" / f"{job_id}.lock"
-                try:
-                    lock_path.unlink(missing_ok=True)
-                except OSError:
-                    pass
+                lock_file_to_remove = root / ".locks" / f"{job_id}.lock"
         finally:
             release_task_lock(root, job_id)
+            if lock_file_to_remove is not None:
+                try:
+                    lock_file_to_remove.unlink(missing_ok=True)
+                except OSError:
+                    pass
 
 
 def cleanup_orphaned_task_dirs(temp_root: Path | None = None) -> None:
