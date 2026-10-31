@@ -128,7 +128,7 @@ def create_job(task_dir: Path) -> Job:
 
 def get_job(job_id: str) -> Job | None:
     # Status polling must stay O(1) in the registry. Expiry is handled by the
-    # periodic maintenance thread and once when a new job is created.
+    # periodic maintenance thread, not by every status request.
     root = _root_for(job_id)
     record = get_job_record(root, job_id)
     if not record or record["status"] == "uploading":
