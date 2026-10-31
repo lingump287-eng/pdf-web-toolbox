@@ -3,6 +3,7 @@ from __future__ import annotations
 import threading
 import time
 import uuid
+import logging
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -23,6 +24,8 @@ class Job:
     media_type: str = "application/octet-stream"
     error: str | None = None
     cancelled: bool = False
+    # Reserved from creation through worker exit, independent of API status.
+    worker_active: bool = True
     created_at: float = field(default_factory=time.time)
     updated_at: float = field(default_factory=time.time)
 
@@ -85,22 +88,20 @@ def submit_job(
     worker: Callable[[Callable[[int, str], None], Callable[[], bool]], tuple[Path, str, str] | dict[str, Any]],
 ) -> None:
     def run() -> None:
-        with _lock:
-            job = _jobs.get(job_id)
-            if not job:
-                return
-            if job.cancelled:
-                job.status = "cancelled"
-                return
-            job.status = "running"
-            job.progress = 5
-            job.message = "开始处理"
-            _touch(job)
-
         def progress(value: int, message: str) -> None:
             update_job(job_id, progress=value, message=message)
 
         try:
+            with _lock:
+                job = _jobs.get(job_id)
+                if not job:
+                    return
+                if job.cancelled:
+                    return
+                job.status = "running"
+                job.progress = 5
+                job.message = "开始处理"
+                _touch(job)
             result = worker(progress, lambda: is_cancelled(job_id))
             with _lock:
                 job = _jobs.get(job_id)
@@ -109,7 +110,6 @@ def submit_job(
                 if job.cancelled:
                     job.status = "cancelled"
                     job.message = "任务已取消"
-                    remove_tree(job.task_dir)
                     return
                 if isinstance(result, dict):
                     job.status = "done"
@@ -143,33 +143,61 @@ def submit_job(
             if not isinstance(exc, ValueError):
                 import logging
                 logging.getLogger(__name__).exception("Background PDF job failed", exc_info=exc)
+        finally:
+            with _lock:
+                job = _jobs.get(job_id)
+                if job:
+                    # Even BaseException must release the reservation, but only
+                    # after the worker has stopped using its files.
+                    if job.status in {"queued", "running"}:
+                        job.status = "failed"
+                        job.error = job.message = "服务器处理失败，请确认文件有效后重试。"
+                    job.worker_active = False
+                    _touch(job)
 
-    _executor.submit(run)
+    try:
+        _executor.submit(run)
+    except BaseException:
+        with _lock:
+            job = _jobs.get(job_id)
+            if job:
+                job.worker_active = False
+                job.status = "failed"
+                _touch(job)
+        raise
 
 
 def cleanup_job(job_id: str) -> None:
     with _lock:
-        job = _jobs.pop(job_id, None)
-    if job:
-        remove_tree(job.task_dir)
+        job = _jobs.get(job_id)
+        if not job or job.worker_active:
+            return
+        # Keep the record if deletion fails so a later cleanup can retry.
+        try:
+            remove_tree(job.task_dir)
+            if not job.task_dir.exists():
+                _jobs.pop(job_id, None)
+        except OSError:
+            logging.getLogger(__name__).exception("Could not clean up job %s", job_id)
 
 
 def cleanup_orphaned_task_dirs() -> None:
     """Clean stale disk files, including files left by a previous process."""
     now = time.time()
+    # Hold the same lock while checking and deleting, so a task cannot be
+    # registered between the snapshot and removal.
     with _lock:
-        active_paths = {job.task_dir.resolve() for job in _jobs.values()
-                        if job.status in {"queued", "running"}}
-    if not TEMP_ROOT.exists():
-        return
-    for folder in TEMP_ROOT.iterdir():
-        if not folder.is_dir() or folder.resolve() in active_paths:
-            continue
-        try:
-            if now - folder.stat().st_mtime > JOB_TTL_SECONDS:
-                remove_tree(folder)
-        except OSError:
-            continue
+        known_paths = {job.task_dir.resolve() for job in _jobs.values()}
+        if not TEMP_ROOT.exists():
+            return
+        for folder in TEMP_ROOT.iterdir():
+            if not folder.is_dir() or folder.resolve() in known_paths:
+                continue
+            try:
+                if now - folder.stat().st_mtime > JOB_TTL_SECONDS:
+                    remove_tree(folder)
+            except OSError:
+                continue
 
 
 def _periodic_cleanup() -> None:
@@ -189,7 +217,7 @@ def cleanup_expired_jobs() -> None:
     expired: list[str] = []
     with _lock:
         for job_id, job in _jobs.items():
-            if job.status not in {"queued", "running"} and now - job.updated_at > JOB_TTL_SECONDS:
+            if not job.worker_active and job.status not in {"queued", "running"} and now - job.updated_at > JOB_TTL_SECONDS:
                 expired.append(job_id)
     for job_id in expired:
         cleanup_job(job_id)

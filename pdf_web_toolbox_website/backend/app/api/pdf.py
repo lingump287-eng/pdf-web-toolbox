@@ -413,13 +413,14 @@ def job_cancel(job_id: str):
 
 @job_router.get("/{job_id}/download")
 def job_download(job_id: str):
+    result, name = _completed_result(job_id)
     job = get_job(job_id)
-    if not job or job.status != "done" or not job.result_path or not job.result_path.exists():
+    if not job:
         raise HTTPException(status_code=404, detail="结果不存在、尚未完成或已过期")
     return FileResponse(
-        str(job.result_path),
+        str(result),
         media_type=job.media_type,
-        filename=job.result_name or job.result_path.name,
+        filename=name,
     )
 
 
