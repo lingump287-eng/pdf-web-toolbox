@@ -24,6 +24,7 @@ from app.utils.task_store import (
     update_job_record_if_not_cancelled,
     start_job_record,
     finish_worker_record,
+    recover_abandoned_job_record,
 )
 
 
@@ -289,18 +290,12 @@ def cleanup_job(job_id: str) -> None:
             if not record:
                 return
             if record.get("worker_active"):
-                # The lock is free but the database still says active: the owner
-                # process exited without running its worker-finally block.
-                now = time.time()
-                updates = {"worker_active": 0, "updated_at": now}
-                if record["status"] in {"uploading", "queued", "running"}:
-                    updates.update({
-                        "status": "failed",
-                        "error": "后台工作进程意外退出，任务未完成。",
-                        "message": "后台工作进程意外退出，任务未完成。",
-                    })
-                update_job_record(root, job_id, updates)
-                _update_cache(job_id, **updates)
+                # The OS lock is free but the database still says active: recover
+                # the reservation atomically without overwriting a concurrent cancel.
+                recover_abandoned_job_record(root, job_id, time.time())
+                latest = get_job_record(root, job_id)
+                if latest:
+                    _job_from_record(root, latest)
                 return
 
             try:
