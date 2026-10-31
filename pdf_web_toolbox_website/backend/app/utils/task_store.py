@@ -233,6 +233,10 @@ def reserve_task_dir(root: Path) -> Path:
         except BaseException:
             release_task_lock(root, job_id)
             shutil.rmtree(task_dir, ignore_errors=True)
+            try:
+                _task_lock_path(root, job_id).unlink(missing_ok=True)
+            except OSError:
+                pass
             raise
         return task_dir
 
