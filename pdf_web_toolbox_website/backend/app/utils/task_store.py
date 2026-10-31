@@ -274,6 +274,7 @@ def discard_task_dir(root: Path, task_dir: Path) -> bool:
     root = Path(root).resolve()
     task_dir = Path(task_dir).resolve()
     job_id = task_dir.name
+    ensure_store(root)
     with registry_lock(root):
         record = get_job_record(root, job_id)
         if record and record.get("worker_active"):
