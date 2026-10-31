@@ -56,6 +56,12 @@ def _child_cleanup_orphans(root_text: str, ready) -> None:
     ready.set()
 
 
+def _child_reserve_worker(root_text: str, job_id: str, started, finished, acquired) -> None:
+    started.set()
+    acquired.value = 1 if task_store.reserve_worker_record(Path(root_text), job_id, time.time()) else 0
+    finished.set()
+
+
 @pytest.fixture
 def executor(monkeypatch):
     pool = ThreadPoolExecutor(max_workers=1)
@@ -167,6 +173,39 @@ def test_duplicate_submission_cannot_release_the_active_worker_lock(tmp_path, ex
     assert job.status == "done" and not job.worker_active
     jobs.cleanup_job(job.id)
     assert not task.exists()
+
+
+def test_worker_claim_is_serialized_with_request_cleanup(tmp_path):
+    task = tmp_path / "claim-race"
+    job = jobs.create_job(task)
+    context = multiprocessing.get_context("spawn")
+    started, finished = context.Event(), context.Event()
+    acquired = context.Value("b", 0)
+    process = context.Process(
+        target=_child_reserve_worker,
+        args=(str(tmp_path), job.id, started, finished, acquired),
+    )
+    try:
+        with task_store.registry_lock(tmp_path):
+            process.start()
+            assert started.wait(10)
+            # The child has entered reserve_worker_record but must wait for the
+            # same registry lock held by request cleanup.
+            assert not finished.wait(0.25)
+        assert finished.wait(10)
+        process.join(10)
+        assert process.exitcode == 0 and acquired.value == 1
+        assert not files.discard_task_dir(task)
+        assert task.exists()
+        record = task_store.get_job_record(tmp_path, job.id)
+        assert record is not None and record["worker_active"] == 1
+    finally:
+        if process.is_alive():
+            process.terminate()
+            process.join(5)
+        task_store.update_job_record(tmp_path, job.id, {"worker_active": 0, "status": "failed"})
+        task_store.release_task_lock(tmp_path, job.id)
+        jobs.cleanup_job(job.id)
 
 
 def test_request_cleanup_cannot_remove_a_submitted_worker_directory(tmp_path, executor):
