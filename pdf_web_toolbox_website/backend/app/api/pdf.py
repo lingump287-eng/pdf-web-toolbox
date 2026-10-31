@@ -42,7 +42,7 @@ from app.utils.files import (
     MAX_PREVIEW_PAGES,
     MAX_TOTAL_PAGES,
     new_task_dir,
-    remove_tree,
+    discard_task_dir,
     save_upload,
     validate_total_size,
     zip_folder,
@@ -56,7 +56,7 @@ IMAGE_ALLOWED = IMAGE_EXTS
 
 
 def handle_upload_error(task_dir: Path, error: Exception) -> None:
-    remove_tree(task_dir)
+    discard_task_dir(task_dir)
     if isinstance(error, ValueError):
         raise HTTPException(status_code=400, detail=str(error))
     logger.exception("PDF upload failed", exc_info=error)
