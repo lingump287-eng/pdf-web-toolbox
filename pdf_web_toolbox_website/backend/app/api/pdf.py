@@ -532,7 +532,11 @@ def _acquire_completed_result(job_id: str) -> tuple[Path, object, Path, str]:
             raise HTTPException(status_code=404, detail="结果文件不可访问")
         result = Path(record["result_path"]).resolve()
         output_root = (task_dir / "output").resolve()
-        if not result.is_relative_to(output_root) or not result.is_file():
+        if (
+            not output_root.is_relative_to(task_dir)
+            or not result.is_relative_to(output_root)
+            or not result.is_file()
+        ):
             raise HTTPException(status_code=404, detail="结果文件不可访问")
         latest_job = get_job(job_id)
         if not latest_job or latest_job.status != "done":
