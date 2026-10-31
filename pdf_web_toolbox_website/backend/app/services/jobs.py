@@ -358,6 +358,9 @@ def cleanup_orphaned_task_dirs(temp_root: Path | None = None) -> None:
     roots = {Path(temp_root).resolve()} if temp_root is not None else _known_roots()
     now = time.time()
     for root in roots:
+        # Initialize before taking registry_lock; list_job_records() also calls
+        # ensure_store(), which must not try to reacquire this process lock.
+        ensure_store(root)
         with registry_lock(root):
             # Read only after acquiring the cross-process registry lock so a
             # newly registered upload cannot be mistaken for an orphan.
