@@ -379,7 +379,7 @@ async def preview_endpoint(file: UploadFile = File(...)):
             raise HTTPException(status_code=400, detail=str(e))
         handle_upload_error(task_dir, e)
     finally:
-        remove_tree(task_dir)
+        discard_task_dir(task_dir)
 
 
 def _simple_pdf_job(progress, cancelled, action, output: Path, name: str):
@@ -476,7 +476,7 @@ async def workflow_blank_scan_endpoint(files: list[UploadFile] = File(...)):
         logger.exception("Blank-page scan failed")
         raise HTTPException(status_code=500, detail="扫描失败，请检查文件后重试") from exc
     finally:
-        remove_tree(task_dir)
+        discard_task_dir(task_dir)
 
 
 def _completed_result(job_id: str) -> tuple[Path, str]:
