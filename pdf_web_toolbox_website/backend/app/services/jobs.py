@@ -26,6 +26,8 @@ from app.utils.task_store import (
     start_job_record,
     finish_worker_record,
     recover_abandoned_job_record,
+    reserve_worker_record,
+    recover_unsubmitted_job_record,
 )
 
 
@@ -126,7 +128,7 @@ def create_job(task_dir: Path) -> Job:
         "media_type": "application/octet-stream",
         "error": None,
         "cancelled": 0,
-        "worker_active": 1,
+        "worker_active": 0,
         "created_at": existing.get("created_at", now),
         "updated_at": now,
         "json_result": None,
@@ -187,6 +189,11 @@ def submit_job(
         if job_id in _submitted_jobs:
             raise RuntimeError(f"Job has already been submitted: {job_id}")
         _submitted_jobs.add(job_id)
+    if not reserve_worker_record(root, job_id, time.time()):
+        with _lock:
+            _submitted_jobs.discard(job_id)
+        raise RuntimeError(f"Job is not available for worker submission: {job_id}")
+    _update_cache(job_id, worker_active=True)
     task_dir = Path(initial["task_dir"])
 
     def run() -> None:
@@ -322,6 +329,13 @@ def cleanup_job(job_id: str) -> None:
                 if latest:
                     _job_from_record(root, latest)
                 return
+            if record["status"] in {"queued", "running"}:
+                # The request owner disappeared before a worker was submitted.
+                recover_unsubmitted_job_record(root, job_id, time.time())
+                latest = get_job_record(root, job_id)
+                if latest:
+                    _job_from_record(root, latest)
+                return
 
             try:
                 remove_tree(task_dir)
@@ -407,9 +421,9 @@ def cleanup_expired_jobs() -> None:
         for record in list_job_records(root):
             job_id = record["job_id"]
             age = now - float(record.get("updated_at") or now)
-            if record.get("worker_active"):
-                # If a live process owns the lock, cleanup_job is a no-op. If the
-                # lock is free, it marks the abandoned task failed for inspection.
+            if record.get("worker_active") or record["status"] in {"queued", "running"}:
+                # If a live request/worker owns the lock, cleanup_job is a no-op.
+                # If the lock is free, the abandoned reservation is marked failed.
                 cleanup_job(job_id)
             elif record["status"] == "uploading" and age > JOB_TTL_SECONDS:
                 cleanup_job(job_id)
