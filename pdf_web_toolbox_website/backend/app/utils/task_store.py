@@ -275,6 +275,11 @@ def discard_task_dir(root: Path, task_dir: Path) -> bool:
     task_dir = Path(task_dir).resolve()
     job_id = task_dir.name
     with registry_lock(root):
+        record = get_job_record(root, job_id)
+        if record and record.get("worker_active"):
+            # A submitted worker owns this directory; request error cleanup must
+            # never release its lock or remove its input/output files.
+            return False
         release_task_lock(root, job_id)
         if not acquire_task_lock(root, job_id, blocking=False):
             return False
@@ -367,6 +372,46 @@ def update_job_record_if_not_cancelled(root: Path, job_id: str, updates: dict[st
             f"UPDATE jobs SET {', '.join(f'{key} = ?' for key in clean)} "
             "WHERE job_id = ? AND cancelled = 0",
             (*clean.values(), job_id),
+        )
+        return cursor.rowcount > 0
+    finally:
+        connection.close()
+
+
+def reserve_worker_record(root: Path, job_id: str, now: float) -> bool:
+    """Claim a queued task for exactly one process before submitting its worker."""
+    ensure_store(root)
+    connection = _connect(root)
+    try:
+        cursor = connection.execute(
+            """
+            UPDATE jobs
+            SET worker_active = 1, updated_at = ?
+            WHERE job_id = ? AND status = 'queued' AND cancelled = 0 AND worker_active = 0
+            """,
+            (now, job_id),
+        )
+        return cursor.rowcount > 0
+    finally:
+        connection.close()
+
+
+def recover_unsubmitted_job_record(root: Path, job_id: str, now: float) -> bool:
+    """Recover a queued/running row whose owner lock is gone but worker was not active."""
+    ensure_store(root)
+    connection = _connect(root)
+    try:
+        cursor = connection.execute(
+            """
+            UPDATE jobs
+            SET status = 'failed',
+                error = '任务提交进程意外退出，任务未完成。',
+                message = '任务提交进程意外退出，任务未完成。',
+                updated_at = ?
+            WHERE job_id = ? AND worker_active = 0
+              AND status IN ('queued', 'running') AND cancelled = 0
+            """,
+            (now, job_id),
         )
         return cursor.rowcount > 0
     finally:
