@@ -14,6 +14,7 @@ from app.utils.task_store import (
     acquire_task_lock,
     has_local_task_lock,
     ensure_task_reserved,
+    ensure_store,
     get_job_record,
     list_job_records,
     release_task_lock,
@@ -308,6 +309,7 @@ def submit_job(
 
 def cleanup_job(job_id: str) -> None:
     root = _root_for(job_id)
+    ensure_store(root)
     with registry_lock(root):
         record = get_job_record(root, job_id)
         if not record:
