@@ -147,6 +147,38 @@ def test_queued_cancel_and_base_exception_release_reservation(tmp_path, executor
     jobs.cleanup_job(second.id)
 
 
+def test_job_activation_is_one_shot_and_status_poll_is_lightweight(tmp_path, monkeypatch, executor):
+    task = tmp_path / "one-shot"
+    job = jobs.create_job(task)
+    started, release = threading.Event(), threading.Event()
+
+    def work(progress, cancelled):
+        started.set()
+        assert release.wait(5)
+        return task / "output.pdf", "output.pdf", "application/pdf"
+
+    try:
+        jobs.submit_job(job.id, work)
+        assert started.wait(5)
+        with pytest.raises(RuntimeError, match="already registered"):
+            jobs.create_job(task)
+        assert job.worker_active and job.status == "running"
+
+        def unexpected_cleanup():
+            pytest.fail("status polling must not scan the full job registry")
+
+        monkeypatch.setattr(jobs, "cleanup_expired_jobs", unexpected_cleanup)
+        assert jobs.get_job(job.id) is job
+        assert job.worker_active and job.status == "running"
+    finally:
+        release.set()
+    executor[0].result(timeout=5)
+    assert job.status == "done" and not job.worker_active
+    monkeypatch.undo()
+    jobs.cleanup_job(job.id)
+    assert not task.exists()
+
+
 def test_duplicate_submission_cannot_release_the_active_worker_lock(tmp_path, executor):
     task = tmp_path / "single-worker"
     job = jobs.create_job(task)
