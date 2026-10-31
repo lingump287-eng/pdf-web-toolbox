@@ -12,6 +12,7 @@ from typing import Any, Callable
 from app.utils.files import JOB_TTL_SECONDS, MAX_CONCURRENT_JOBS, TEMP_ROOT, remove_tree
 from app.utils.task_store import (
     acquire_task_lock,
+    has_local_task_lock,
     ensure_task_reserved,
     get_job_record,
     list_job_records,
@@ -50,6 +51,7 @@ class Job:
 # every process; no request or worker relies on another process's Python memory.
 _jobs: dict[str, Job] = {}
 _job_roots: dict[str, Path] = {}
+_submitted_jobs: set[str] = set()
 _lock = threading.RLock()
 _executor = ThreadPoolExecutor(max_workers=MAX_CONCURRENT_JOBS, thread_name_prefix="pdf-job")
 
@@ -179,6 +181,12 @@ def submit_job(
     initial = get_job_record(root, job_id)
     if not initial:
         raise KeyError(f"Unknown job: {job_id}")
+    if not has_local_task_lock(root, job_id):
+        raise RuntimeError(f"Task reservation is not owned by this process: {job_id}")
+    with _lock:
+        if job_id in _submitted_jobs:
+            raise RuntimeError(f"Job has already been submitted: {job_id}")
+        _submitted_jobs.add(job_id)
     task_dir = Path(initial["task_dir"])
 
     def run() -> None:
@@ -251,12 +259,21 @@ def submit_job(
             if not isinstance(exc, Exception):
                 raise
         finally:
-            finish_worker_record(root, job_id, time.time())
-            latest = get_job_record(root, job_id)
-            if latest:
-                _job_from_record(root, latest)
-            # The OS releases this lock automatically if the worker process crashes.
-            release_task_lock(root, job_id)
+            try:
+                finish_worker_record(root, job_id, time.time())
+                latest = get_job_record(root, job_id)
+                if latest:
+                    _job_from_record(root, latest)
+            except Exception:
+                logging.getLogger(__name__).exception(
+                    "Could not persist final state for job %s; cleanup will recover it",
+                    job_id,
+                )
+            finally:
+                with _lock:
+                    _submitted_jobs.discard(job_id)
+                # The OS releases this lock automatically if the worker process crashes.
+                release_task_lock(root, job_id)
 
     try:
         _executor.submit(run)
@@ -269,9 +286,13 @@ def submit_job(
             "message": "任务提交失败，请稍后重试。",
             "updated_at": now,
         }
-        update_job_record(root, job_id, updates)
-        _update_cache(job_id, **updates)
-        release_task_lock(root, job_id)
+        try:
+            update_job_record(root, job_id, updates)
+            _update_cache(job_id, **updates)
+        finally:
+            with _lock:
+                _submitted_jobs.discard(job_id)
+            release_task_lock(root, job_id)
         raise
 
 
