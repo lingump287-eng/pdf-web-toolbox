@@ -280,15 +280,15 @@ def submit_job(
     except BaseException:
         now = time.time()
         updates = {
-            "worker_active": 0,
             "status": "failed",
             "error": "任务提交失败，请稍后重试。",
             "message": "任务提交失败，请稍后重试。",
             "updated_at": now,
         }
         try:
-            update_job_record(root, job_id, updates)
-            _update_cache(job_id, **updates)
+            if update_job_record_if_not_cancelled(root, job_id, updates):
+                _update_cache(job_id, **updates)
+            finish_worker_record(root, job_id, now)
         finally:
             with _lock:
                 _submitted_jobs.discard(job_id)
