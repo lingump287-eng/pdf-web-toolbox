@@ -420,15 +420,18 @@ def job_cancel(job_id: str):
 
 @job_router.get("/{job_id}/download")
 def job_download(job_id: str):
-    result, name = _completed_result(job_id)
-    job = get_job(job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail="结果不存在、尚未完成或已过期")
-    return FileResponse(
-        str(result),
-        media_type=job.media_type,
-        filename=name,
-    )
+    root, job, result, name = _acquire_completed_result(job_id)
+    try:
+        return _TaskLockedFileResponse(
+            str(result),
+            media_type=job.media_type,
+            filename=name,
+            task_root=root,
+            job_id=job_id,
+        )
+    except BaseException:
+        release_task_lock(root, job_id)
+        raise
 
 
 @router.post("/workflow")
@@ -535,22 +538,6 @@ def _acquire_completed_result(job_id: str) -> tuple[Path, object, Path, str]:
     except BaseException:
         if acquired:
             release_task_lock(root, job_id)
-        raise
-
-
-@job_router.get("/{job_id}/download")
-def job_download(job_id: str):
-    root, job, result, name = _acquire_completed_result(job_id)
-    try:
-        return _TaskLockedFileResponse(
-            str(result),
-            media_type=job.media_type,
-            filename=name,
-            task_root=root,
-            job_id=job_id,
-        )
-    except BaseException:
-        release_task_lock(root, job_id)
         raise
 
 
