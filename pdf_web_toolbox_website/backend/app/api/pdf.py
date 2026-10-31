@@ -38,6 +38,7 @@ from app.services.pdf_ops import (
 )
 from app.utils.task_store import (
     acquire_task_lock,
+    allow_cross_thread_lock_release,
     get_job_record,
     release_task_lock,
     registry_lock,
@@ -420,7 +421,7 @@ def job_cancel(job_id: str):
 
 @job_router.get("/{job_id}/download")
 def job_download(job_id: str):
-    root, job, result, name = _acquire_completed_result(job_id)
+    root, job, result, name = _acquire_completed_result(job_id, cross_thread_release=True)
     try:
         return _TaskLockedFileResponse(
             str(result),
@@ -504,7 +505,9 @@ class _TaskLockedFileResponse(FileResponse):
             release_task_lock(self._task_root, self._job_id)
 
 
-def _acquire_completed_result(job_id: str) -> tuple[Path, object, Path, str]:
+def _acquire_completed_result(
+    job_id: str, *, cross_thread_release: bool = False
+) -> tuple[Path, object, Path, str]:
     job = get_job(job_id)
     if not job or job.status != "done":
         raise HTTPException(status_code=404, detail="结果不存在、尚未完成或已过期")
@@ -541,6 +544,8 @@ def _acquire_completed_result(job_id: str) -> tuple[Path, object, Path, str]:
         latest_job = get_job(job_id)
         if not latest_job or latest_job.status != "done":
             raise HTTPException(status_code=404, detail="结果不存在、尚未完成或已过期")
+        if cross_thread_release and not allow_cross_thread_lock_release(root, job_id):
+            raise HTTPException(status_code=404, detail="结果暂不可访问，请稍后重试")
         return root, latest_job, result, record.get("result_name") or result.name
     except BaseException:
         if acquired:
