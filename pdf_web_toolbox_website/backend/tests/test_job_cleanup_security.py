@@ -312,7 +312,8 @@ def test_cancellation_from_another_process_is_visible_to_worker(tmp_path):
         assert process.exitcode == 0
         assert parent_connection.poll(5) and parent_connection.recv() is True
         assert jobs.is_cancelled(job.id)
-        assert job.status == "cancelled"
+        refreshed = jobs.get_job(job.id)
+        assert refreshed is not None and refreshed.status == "cancelled"
     finally:
         if process.is_alive():
             process.terminate()
