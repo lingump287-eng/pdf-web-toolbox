@@ -381,20 +381,25 @@ def update_job_record_if_not_cancelled(root: Path, job_id: str, updates: dict[st
 
 def reserve_worker_record(root: Path, job_id: str, now: float) -> bool:
     """Claim a queued task for exactly one process before submitting its worker."""
+    root = Path(root).resolve()
     ensure_store(root)
-    connection = _connect(root)
-    try:
-        cursor = connection.execute(
-            """
-            UPDATE jobs
-            SET worker_active = 1, updated_at = ?
-            WHERE job_id = ? AND status = 'queued' AND cancelled = 0 AND worker_active = 0
-            """,
-            (now, job_id),
-        )
-        return cursor.rowcount > 0
-    finally:
-        connection.close()
+    # Serialize the worker claim with request-error cleanup and expiry recovery.
+    # Otherwise cleanup could observe worker_active=0 and delete the task directory
+    # in the gap between checking the row and claiming the worker.
+    with registry_lock(root):
+        connection = _connect(root)
+        try:
+            cursor = connection.execute(
+                """
+                UPDATE jobs
+                SET worker_active = 1, updated_at = ?
+                WHERE job_id = ? AND status = 'queued' AND cancelled = 0 AND worker_active = 0
+                """,
+                (now, job_id),
+            )
+            return cursor.rowcount > 0
+        finally:
+            connection.close()
 
 
 def recover_unsubmitted_job_record(root: Path, job_id: str, now: float) -> bool:
