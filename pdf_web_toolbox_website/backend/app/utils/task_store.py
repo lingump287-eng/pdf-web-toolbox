@@ -68,7 +68,9 @@ def _initialize_unlocked(root: Path) -> None:
     (root / _LOCKS_DIR).mkdir(parents=True, exist_ok=True)
     connection = _connect(root)
     try:
-        connection.execute("PRAGMA journal_mode=WAL")
+        journal_mode = connection.execute("PRAGMA journal_mode").fetchone()[0]
+        if str(journal_mode).lower() != "wal":
+            connection.execute("PRAGMA journal_mode=WAL")
         connection.execute("PRAGMA synchronous=FULL")
         connection.execute(
             """
@@ -204,7 +206,8 @@ def reserve_task_dir(root: Path) -> Path:
     """Create and register an upload directory before the first byte is written."""
     root = Path(root).resolve()
     with registry_lock(root):
-        _initialize_unlocked(root)
+        if _root_key(root) not in _INITIALIZED_ROOTS:
+            _initialize_unlocked(root)
         job_id = uuid.uuid4().hex
         task_dir = root / job_id
         task_dir.mkdir(parents=True, exist_ok=False)
@@ -240,7 +243,8 @@ def ensure_task_reserved(root: Path, task_dir: Path) -> None:
     task_dir = Path(task_dir).resolve()
     job_id = task_dir.name
     with registry_lock(root):
-        _initialize_unlocked(root)
+        if _root_key(root) not in _INITIALIZED_ROOTS:
+            _initialize_unlocked(root)
         task_dir.mkdir(parents=True, exist_ok=True)
         if not has_local_task_lock(root, job_id):
             if not acquire_task_lock(root, job_id, blocking=False):
@@ -375,6 +379,39 @@ def start_job_record(root: Path, job_id: str, now: float) -> bool:
             UPDATE jobs
             SET status = 'running', progress = 5, message = '开始处理', updated_at = ?
             WHERE job_id = ? AND status = 'queued' AND cancelled = 0
+            """,
+            (now, job_id),
+        )
+        return cursor.rowcount > 0
+    finally:
+        connection.close()
+
+
+def recover_abandoned_job_record(root: Path, job_id: str, now: float) -> bool:
+    """Mark a job whose OS lock is free but database reservation is still active."""
+    ensure_store(root)
+    connection = _connect(root)
+    try:
+        cursor = connection.execute(
+            """
+            UPDATE jobs
+            SET worker_active = 0,
+                updated_at = ?,
+                status = CASE
+                    WHEN status IN ('uploading', 'queued', 'running') AND cancelled = 0 THEN 'failed'
+                    ELSE status
+                END,
+                error = CASE
+                    WHEN status IN ('uploading', 'queued', 'running') AND cancelled = 0
+                    THEN '后台工作进程意外退出，任务未完成。'
+                    ELSE error
+                END,
+                message = CASE
+                    WHEN status IN ('uploading', 'queued', 'running') AND cancelled = 0
+                    THEN '后台工作进程意外退出，任务未完成。'
+                    ELSE message
+                END
+            WHERE job_id = ? AND worker_active = 1
             """,
             (now, job_id),
         )
