@@ -13,6 +13,7 @@ from app.utils.files import JOB_TTL_SECONDS, MAX_CONCURRENT_JOBS, TEMP_ROOT, rem
 from app.utils.task_store import (
     acquire_task_lock,
     has_local_task_lock,
+    allow_cross_thread_lock_release,
     ensure_task_reserved,
     ensure_store,
     get_job_record,
@@ -181,6 +182,12 @@ def submit_job(
         with _lock:
             _submitted_jobs.discard(job_id)
         raise RuntimeError(f"Job is not available for worker submission: {job_id}")
+    if not allow_cross_thread_lock_release(root, job_id):
+        finish_worker_record(root, job_id, time.time())
+        with _lock:
+            _submitted_jobs.discard(job_id)
+        release_task_lock(root, job_id)
+        raise RuntimeError(f"Task reservation could not be transferred to worker: {job_id}")
     _update_cache(job_id, worker_active=True)
     task_dir = Path(initial["task_dir"])
 
