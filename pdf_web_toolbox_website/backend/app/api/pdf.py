@@ -527,8 +527,11 @@ def _acquire_completed_result(job_id: str) -> tuple[Path, object, Path, str]:
                 raise HTTPException(status_code=404, detail="结果暂不可访问，请稍后重试")
             acquired = True
 
+        task_dir = Path(record["task_dir"]).resolve()
+        if task_dir.parent != root or task_dir.name != job_id:
+            raise HTTPException(status_code=404, detail="结果文件不可访问")
         result = Path(record["result_path"]).resolve()
-        output_root = (Path(record["task_dir"]) / "output").resolve()
+        output_root = (task_dir / "output").resolve()
         if not result.is_relative_to(output_root) or not result.is_file():
             raise HTTPException(status_code=404, detail="结果文件不可访问")
         latest_job = get_job(job_id)
