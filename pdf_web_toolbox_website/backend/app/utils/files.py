@@ -4,11 +4,12 @@ import os
 import shutil
 import sys
 import tempfile
-import uuid
 from pathlib import Path
 from zipfile import ZIP_DEFLATED, ZipFile
 
 from fastapi import UploadFile
+
+from app.utils.task_store import discard_task_dir as _discard_task_dir, reserve_task_dir
 
 
 def app_data_root() -> Path:
@@ -41,10 +42,13 @@ MAX_REQUEST_BYTES = MAX_TOTAL_BYTES + 12 * 1024 * 1024
 
 
 def new_task_dir() -> Path:
-    task_dir = TEMP_ROOT / uuid.uuid4().hex
-    (task_dir / "input").mkdir(parents=True, exist_ok=True)
-    (task_dir / "output").mkdir(parents=True, exist_ok=True)
-    return task_dir
+    """Create a task directory and reserve it before uploads begin."""
+    return reserve_task_dir(TEMP_ROOT)
+
+
+def discard_task_dir(task_dir: Path) -> bool:
+    """Release an upload-only reservation and safely remove its directory."""
+    return _discard_task_dir(Path(task_dir).parent, Path(task_dir))
 
 
 def safe_filename(filename: str | None, fallback: str) -> str:
