@@ -289,6 +289,9 @@ def submit_job(
             if update_job_record_if_not_cancelled(root, job_id, updates):
                 _update_cache(job_id, **updates)
             finish_worker_record(root, job_id, now)
+            latest = get_job_record(root, job_id)
+            if latest:
+                _job_from_record(root, latest)
         finally:
             with _lock:
                 _submitted_jobs.discard(job_id)
