@@ -104,7 +104,10 @@ def ensure_store(root: Path) -> None:
     with _INITIALIZED_GUARD:
         if key in _INITIALIZED_ROOTS:
             return
-        with registry_lock(root):
+    # Do not hold the initialization mutex while waiting on the cross-process
+    # registry lock; code already holding the registry lock may need this guard.
+    with registry_lock(root):
+        with _INITIALIZED_GUARD:
             if key not in _INITIALIZED_ROOTS:
                 _initialize_unlocked(root)
 
