@@ -301,7 +301,14 @@ def cleanup_job(job_id: str) -> None:
         record = get_job_record(root, job_id)
         if not record:
             return
-        task_dir = Path(record["task_dir"])
+        task_dir = Path(record["task_dir"]).resolve()
+        if task_dir.parent != root.resolve() or task_dir.name != job_id:
+            logging.getLogger(__name__).error(
+                "Refusing to clean task %s with an out-of-root path: %s",
+                job_id,
+                task_dir,
+            )
+            return
         if not acquire_task_lock(root, job_id, blocking=False):
             # Another process still owns the task directory.
             return
