@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from starlette.responses import FileResponse
 
 from app.main import app
 from app.services import jobs
@@ -297,6 +298,48 @@ def test_submission_failure_releases_reservation(tmp_path, monkeypatch):
     with pytest.raises(RuntimeError, match="executor stopped"):
         jobs.submit_job(job.id, lambda *args: None)
     assert not job.worker_active and job.status == "failed"
+    jobs.cleanup_job(job.id)
+    assert not task.exists()
+
+
+def test_result_download_holds_task_lock_until_stream_finishes(tmp_path, monkeypatch):
+    task = tmp_path / "streaming-download"
+    output = task / "output"
+    output.mkdir(parents=True)
+    result_file = output / "result.pdf"
+    result_file.write_bytes(b"streamed PDF result")
+    job = jobs.create_job(task)
+    task_store.update_job_record(tmp_path, job.id, {
+        "worker_active": 0,
+        "status": "done",
+        "result_path": str(result_file),
+        "result_name": "result.pdf",
+        "media_type": "application/pdf",
+    })
+    task_store.release_task_lock(tmp_path, job.id)
+
+    started, release = threading.Event(), threading.Event()
+    original_call = FileResponse.__call__
+
+    async def pause_stream(self, scope, receive, send):
+        started.set()
+        assert release.wait(5)
+        await original_call(self, scope, receive, send)
+
+    monkeypatch.setattr(FileResponse, "__call__", pause_stream)
+    with TestClient(app) as client:
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(client.get, f"/api/jobs/{job.id}/download")
+            try:
+                assert started.wait(5)
+                jobs.cleanup_job(job.id)
+                assert task.exists()
+            finally:
+                release.set()
+            response = future.result(timeout=5)
+        assert response.status_code == 200
+        assert response.content == b"streamed PDF result"
+
     jobs.cleanup_job(job.id)
     assert not task.exists()
 
