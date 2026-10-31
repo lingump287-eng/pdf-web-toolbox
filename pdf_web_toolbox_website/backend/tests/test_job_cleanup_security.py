@@ -130,6 +130,34 @@ def test_queued_cancel_and_base_exception_release_reservation(tmp_path, executor
     jobs.cleanup_job(second.id)
 
 
+def test_duplicate_submission_cannot_release_the_active_worker_lock(tmp_path, executor):
+    task = tmp_path / "single-worker"
+    job = jobs.create_job(task)
+    started, release = threading.Event(), threading.Event()
+    result = task / "output" / "result.pdf"
+    result.parent.mkdir(parents=True, exist_ok=True)
+
+    def work(progress, cancelled):
+        started.set()
+        assert release.wait(5)
+        result.write_bytes(b"done")
+        return result, "result.pdf", "application/pdf"
+
+    try:
+        jobs.submit_job(job.id, work)
+        assert started.wait(5)
+        with pytest.raises(RuntimeError, match="already been submitted"):
+            jobs.submit_job(job.id, work)
+        jobs.cleanup_job(job.id)
+        assert task.exists() and job.worker_active
+    finally:
+        release.set()
+    executor[0].result(timeout=5)
+    assert job.status == "done" and not job.worker_active
+    jobs.cleanup_job(job.id)
+    assert not task.exists()
+
+
 @pytest.mark.parametrize("raises", [False, True])
 def test_failed_deletion_is_retried(tmp_path, monkeypatch, raises):
     task = tmp_path / "job"
