@@ -341,6 +341,34 @@ def save_job_record(root: Path, record: dict[str, Any]) -> None:
         connection.close()
 
 
+def activate_job_record(root: Path, job_id: str, now: float) -> bool:
+    """Promote one upload reservation to a queued job exactly once."""
+    ensure_store(root)
+    connection = _connect(root)
+    try:
+        cursor = connection.execute(
+            """
+            UPDATE jobs
+            SET status = 'queued',
+                progress = 0,
+                message = '等待处理',
+                result_path = NULL,
+                result_name = NULL,
+                media_type = 'application/octet-stream',
+                error = NULL,
+                cancelled = 0,
+                worker_active = 0,
+                updated_at = ?
+            WHERE job_id = ? AND status = 'uploading'
+              AND worker_active = 0 AND cancelled = 0
+            """,
+            (now, job_id),
+        )
+        return cursor.rowcount > 0
+    finally:
+        connection.close()
+
+
 def update_job_record(root: Path, job_id: str, updates: dict[str, Any]) -> bool:
     ensure_store(root)
     clean = {key: value for key, value in updates.items() if key in _COLUMNS}
