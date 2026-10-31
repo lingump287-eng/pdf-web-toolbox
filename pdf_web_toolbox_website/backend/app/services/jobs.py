@@ -113,7 +113,6 @@ def _update_cache(job_id: str, **values: Any) -> None:
 def create_job(task_dir: Path) -> Job:
     task_dir = Path(task_dir).resolve()
     root = task_dir.parent
-    cleanup_expired_jobs()
     ensure_task_reserved(root, task_dir)
     job_id = task_dir.name
     now = time.time()
