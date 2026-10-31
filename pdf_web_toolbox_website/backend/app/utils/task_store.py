@@ -345,6 +345,77 @@ def update_job_record(root: Path, job_id: str, updates: dict[str, Any]) -> bool:
         connection.close()
 
 
+def update_job_record_if_not_cancelled(root: Path, job_id: str, updates: dict[str, Any]) -> bool:
+    """Apply worker progress/result only if cancellation has not won the race."""
+    ensure_store(root)
+    clean = {key: value for key, value in updates.items() if key in _COLUMNS}
+    if not clean:
+        return False
+    if isinstance(clean.get("json_result"), (dict, list)):
+        clean["json_result"] = json.dumps(clean["json_result"], ensure_ascii=False)
+    connection = _connect(root)
+    try:
+        cursor = connection.execute(
+            f"UPDATE jobs SET {', '.join(f'{key} = ?' for key in clean)} "
+            "WHERE job_id = ? AND cancelled = 0",
+            (*clean.values(), job_id),
+        )
+        return cursor.rowcount > 0
+    finally:
+        connection.close()
+
+
+def start_job_record(root: Path, job_id: str, now: float) -> bool:
+    """Atomically transition a queued job to running unless it was cancelled."""
+    ensure_store(root)
+    connection = _connect(root)
+    try:
+        cursor = connection.execute(
+            """
+            UPDATE jobs
+            SET status = 'running', progress = 5, message = '开始处理', updated_at = ?
+            WHERE job_id = ? AND status = 'queued' AND cancelled = 0
+            """,
+            (now, job_id),
+        )
+        return cursor.rowcount > 0
+    finally:
+        connection.close()
+
+
+def finish_worker_record(root: Path, job_id: str, now: float) -> bool:
+    """Release the worker reservation without overwriting a concurrent cancellation."""
+    ensure_store(root)
+    connection = _connect(root)
+    try:
+        cursor = connection.execute(
+            """
+            UPDATE jobs
+            SET worker_active = 0,
+                updated_at = ?,
+                status = CASE
+                    WHEN status IN ('queued', 'running') AND cancelled = 0 THEN 'failed'
+                    ELSE status
+                END,
+                error = CASE
+                    WHEN status IN ('queued', 'running') AND cancelled = 0
+                    THEN '服务器处理失败，请确认文件有效后重试。'
+                    ELSE error
+                END,
+                message = CASE
+                    WHEN status IN ('queued', 'running') AND cancelled = 0
+                    THEN '服务器处理失败，请确认文件有效后重试。'
+                    ELSE message
+                END
+            WHERE job_id = ?
+            """,
+            (now, job_id),
+        )
+        return cursor.rowcount > 0
+    finally:
+        connection.close()
+
+
 def cancel_job_record(root: Path, job_id: str, now: float) -> bool:
     ensure_store(root)
     connection = _connect(root)
